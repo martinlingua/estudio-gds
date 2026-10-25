@@ -755,7 +755,7 @@ function vTarifas() {
   <section class="panel"><h3>Gastos y reparticiones</h3><div class="muted small" style="margin:6px 0 10px">${esc(P.vigenciaReparticiones)}. Los marcados “2025” no se actualizaron en la planilla de agosto.</div><div class="grid">
     ${g('Libre deuda ATM ($)', 'libreDeuda')}${g('Certificado de bloqueo ($)', 'bloqueo')}${g('Catastral ($)', 'catastral')}${g('Vialidad ($)', 'vialidad')}${g('Irrigación, cert. único ($)', 'irrigacion')}${g('AYSAM particulares ($)', 'aysamPart')}${g('AYSAM sociedades ($)', 'aysamSoc')}${g('Inscripción en el Registro ($)', 'inscripcion')}</div>
     <div class="tw" style="margin-top:12px"><table><thead><tr><th>Municipio</th><th class="r">Transferencia ($)</th><th class="r">Hipoteca ($)</th></tr></thead><tbody>${muniRows}</tbody></table></div></section>
-  ${Cloud.on ? `<section class="panel"><h3>Mi cuenta</h3><p class="muted small">Ingresaste como ${esc(Cloud.user && Cloud.user.email || '')}.</p><div class="bar" style="margin:8px 0 0"><input id="newPw" type="password" autocomplete="new-password" placeholder="Nueva contraseña (mínimo 8 caracteres)" style="max-width:320px"><button class="btn sm" type="button" data-act="changePw">Cambiar contraseña</button></div></section>` : ''}
+  ${Cloud.on ? `<section class="panel"><h3>Mi cuenta</h3><p class="muted small">Ingresaste como ${esc(Cloud.user && Cloud.user.email || '')}. Tu rol: ${isSup() ? 'supervisor' : 'usuario'}. Los supervisores pueden ver todo el estudio.</p><div class="bar" style="margin:8px 0 0"><input id="newPw" type="password" autocomplete="new-password" placeholder="Nueva contraseña (mínimo 8 caracteres)" style="max-width:320px"><button class="btn sm" type="button" data-act="changePw">Cambiar contraseña</button></div></section>` : ''}
   <section class="panel"><h3>Equipo</h3><p class="muted small">Nombres que aparecen como responsables en Seguimiento, separados por coma.</p><input id="equipo" value="${esc(S.equipo.join(', '))}"></section>`;
 }
 
@@ -777,23 +777,28 @@ const personName = e => { const t = (Cloud.team || []).find(t => t.email === e);
 const visFilter = (x, mode) => {
   if (!Cloud.on || !mode) return true;
   if (mode === 'mios') return esMio(x);
-  if (mode === 'comp') return !esMio(x) && normShare(x.compartido).includes(myEmail());
-  if (mode === 'otros') return !esMio(x) && !normShare(x.compartido).includes(myEmail());
+  if (mode === 'comp') return !esMio(x) && (normShare(x.compartido).includes(myEmail()) || normShare(x.compartido).includes('*'));
+  if (mode === 'otros') return !esMio(x) && !normShare(x.compartido).includes(myEmail()) && !normShare(x.compartido).includes('*');
   return true;
 };
 const ownFilterSel = (id, cur) => !Cloud.on ? '' : `<select id="${id}" style="width:auto"><option value="">Todo lo que veo</option><option value="mios" ${cur === 'mios' ? 'selected' : ''}>Mis cosas</option><option value="comp" ${cur === 'comp' ? 'selected' : ''}>Compartido conmigo</option>${isSup() ? `<option value="otros" ${cur === 'otros' ? 'selected' : ''}>De otras personas (supervisor)</option>` : ''}</select>`;
-const ownChips = x => !Cloud.on ? '' : (esMio(x) ? (normShare(x.compartido).length ? `<span class="chip">Compartido con ${normShare(x.compartido).length}</span>` : '<span class="chip">Privado</span>') : `<span class="chip info">De ${esc(personName(x.dueno))}</span>`);
-const shareBtn = (x, coll) => !Cloud.on ? '' : `${ownChips(x)}<button class="btn ghost sm" type="button" data-act="share" data-c="${coll}" data-id="${x.id}">${puedeGestionar(x) ? 'Compartir' : 'Quién lo ve'}</button>`;
+const supEmails = () => (Cloud.team || []).filter(t => t.rol === 'supervisor').map(t => t.email);
+const shareCount = x => normShare(x.compartido).filter(e => e !== '*' && !supEmails().includes(e)).length;
+const compTodos = x => normShare(x.compartido).includes('*');
+const ownChips = x => !Cloud.on ? '' : (esMio(x) ? (compTodos(x) ? '<span class="chip">Compartido con todos</span>' : shareCount(x) ? `<span class="chip">Compartido con ${shareCount(x)}</span>` : '<span class="chip">Privado</span>') : `<span class="chip info">De ${esc(personName(x.dueno))}</span>`);
+const shareBtn = (x, coll) => !Cloud.on ? '' : `${ownChips(x)}<button class="btn ghost sm" type="button" data-act="share" data-c="${coll}" data-id="${x.id}">${puedeGestionar(x) ? 'Compartir' : 'Quién lo ve'}</button>${puedeGestionar(x) ? `<button class="btn ghost sm" type="button" data-act="shareAll" data-c="${coll}" data-id="${x.id}" aria-pressed="${compTodos(x)}" title="Comparte con todo el estudio, incluidas las cuentas que se creen más adelante">${compTodos(x) ? '✓ Con todos' : 'Con todos'}</button>` : ''}`;
 const WHAT = {presupuestos: 'este presupuesto', tareas: 'esta tarea', clientes: 'este cliente'};
 function shareDlgHtml() {
   const d = Cloud.dlg; if (!d) return '';
   const x = (S[d.c] || []).find(z => z.id === d.id); if (!x) return '';
-  const can = puedeGestionar(x), owner = x.dueno || myEmail(), sel = normShare(x.compartido);
-  const people = (Cloud.team || []).filter(t => t.email !== owner);
-  const rows = people.map(t => `<label class="chk" style="padding:6px 0"><input type="checkbox" data-shr="${esc(t.email)}" ${sel.includes(t.email) || t.rol === 'supervisor' ? 'checked' : ''} ${!can || t.rol === 'supervisor' ? 'disabled' : ''}><span style="flex:1">${esc(t.nombre || t.email)}${t.nombre ? `<span class="muted small"> · ${esc(t.email)}</span>` : ''}${t.rol === 'supervisor' ? ' <span class="chip">supervisor: ve todo</span>' : ''}</span></label>`).join('');
+  const can = puedeGestionar(x), owner = x.dueno || myEmail(), sel = normShare(x.compartido), all = sel.includes('*');
+  const people = (Cloud.team || []).filter(t => t.email !== owner && t.rol !== 'supervisor');
+  const rows = people.map(t => `<label class="chk" style="padding:6px 0"><input type="checkbox" data-shr="${esc(t.email)}" ${sel.includes(t.email) || all ? 'checked' : ''} ${!can || all ? 'disabled' : ''}><span style="flex:1">${esc(t.nombre || t.email)}${t.nombre ? `<span class="muted small"> · ${esc(t.email)}</span>` : ''}</span></label>`).join('');
   return `<div id="dlgbg" class="dlgbg"><div class="dlg" role="dialog" aria-modal="true"><div class="bar" style="margin-bottom:6px"><h3>Compartir ${WHAT[d.c]}</h3><span class="sp"></span><button class="btn ghost sm" type="button" data-act="closeDlg">Cerrar</button></div>
    <p class="muted small" style="margin:0 0 10px">Dueño: <b>${esc(esMio(x) ? 'vos' : personName(owner))}</b>. ${can ? 'Las personas marcadas pueden ver y editar, pero no eliminar. Sólo el dueño y los supervisores cambian esto.' : 'Sólo el dueño o un supervisor pueden cambiar con quién se comparte.'}</p>
+   ${can ? `<label class="chk" style="padding:6px 0;border-bottom:1px solid var(--line);margin-bottom:4px"><input type="checkbox" data-shr-all="1" ${all ? 'checked' : ''}><span style="flex:1"><b>Con todos</b><span class="muted small"> · incluye las cuentas que se agreguen más adelante</span></span></label>` : (all ? '<p class="small" style="margin:0 0 6px"><b>Compartido con todo el estudio.</b></p>' : '')}
    ${rows || '<div class="muted small">No hay otras cuentas en el equipo.</div>'}
+   ${supEmails().some(e => e !== owner) ? '<label class="chk" style="padding:6px 0"><input type="checkbox" checked disabled><span style="flex:1">Supervisor<span class="muted small"> · ve todo el estudio</span></span></label>' : ''}
    ${can && d.c === 'presupuestos' ? '<p class="muted small" style="margin:10px 0 0">Al compartir un presupuesto también se comparten su cliente y las tareas de seguimiento vinculadas, si son tuyos.</p>' : ''}</div></div>`;
 }
 function renderDlg() {
@@ -801,6 +806,16 @@ function renderDlg() {
   if (!h) { Cloud.dlg = null; if (el) el.remove(); return; }
   if (!el) { el = document.createElement('div'); el.id = 'dlgwrap'; document.body.appendChild(el); }
   el.innerHTML = h;
+}
+function toggleAll(coll, id, on) {
+  const x = S[coll].find(z => z.id === id); if (!x || !puedeGestionar(x)) return;
+  const set = o => { o.compartido = on ? ['*'] : []; };
+  set(x);
+  if (on && coll === 'presupuestos') {
+    const cli = S.clientes.find(c => c.id === x.clienteId); if (cli && puedeGestionar(cli)) set(cli);
+    S.tareas.filter(t => t.presupuestoId === x.id && puedeGestionar(t)).forEach(set);
+  }
+  save(); render(true);
 }
 function toggleShare(coll, id, email, on) {
   const x = S[coll].find(z => z.id === id); if (!x || !puedeGestionar(x)) return;
@@ -1062,6 +1077,7 @@ document.addEventListener('click', e => {
     case 'resetParams': if (!confirmTwice('rp', t, 'Tocá otra vez para volver a los valores de fábrica.')) return; S.params = clone(DEFAULT_PARAMS); save(); return render();
     case 'logout': return cloudLogout();
     case 'share': Cloud.dlg = {c: d.c, id: d.id}; return renderDlg();
+    case 'shareAll': { const x = S[d.c].find(z => z.id === d.id); if (!x) return; toggleAll(d.c, d.id, !compTodos(x)); return toast(compTodos(x) ? 'Compartido con todo el estudio.' : 'Ya no se comparte con todos.'); }
     case 'closeDlg': Cloud.dlg = null; return renderDlg();
     case 'changePw': { const el = $('#newPw'); cloudChangePw(el.value).then(() => { el.value = ''; }); return; }
     case 'exportData': { const blob = new Blob([JSON.stringify(S, null, 1)], {type: 'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'estudio-copia-' + today() + '.json'; a.click(); return; }
@@ -1131,8 +1147,9 @@ $('#themeBtn').addEventListener('click', () => {
 try { const th = localStorage.getItem(KEY + '-theme'); if (th) document.documentElement.dataset.theme = th; } catch (e) {}
 
 document.addEventListener('change', ev => {
-  const el = ev.target; if (!el.dataset || !el.dataset.shr || !Cloud.dlg) return;
-  toggleShare(Cloud.dlg.c, Cloud.dlg.id, el.dataset.shr, el.checked);
+  const el = ev.target; if (!el.dataset || !Cloud.dlg) return;
+  if (el.dataset.shrAll) return toggleAll(Cloud.dlg.c, Cloud.dlg.id, el.checked);
+  if (el.dataset.shr) toggleShare(Cloud.dlg.c, Cloud.dlg.id, el.dataset.shr, el.checked);
 });
 document.addEventListener('click', ev => { if (ev.target.id === 'dlgbg') { Cloud.dlg = null; renderDlg(); } });
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && Cloud.dlg) { Cloud.dlg = null; renderDlg(); } });
