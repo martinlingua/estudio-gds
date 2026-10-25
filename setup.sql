@@ -59,7 +59,7 @@ exception when duplicate_object then null; end $$;
 -- 7) Cuentas autorizadas: CAMBIAR por los correos reales (en minúscula)
 insert into public.acceso (email) values
   ('macarena.gvl@gmail.com'),
-  ('martin.lingua@gmail.com')
-  ('gomezmf75@yahoo.com.ar')
-  ('estudioconsultum@gmail.com')
+  ('martin.lingua@gmail.com'),
+  ('gomezmf75@yahoo.com.ar'),
+  ('estudioconsultum@gmail.com'),
 on conflict do nothing;
