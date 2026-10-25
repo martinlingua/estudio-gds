@@ -60,4 +60,6 @@ exception when duplicate_object then null; end $$;
 insert into public.acceso (email) values
   ('macarena.gvl@gmail.com'),
   ('martin.lingua@gmail.com')
+  ('gomezmf75@yahoo.com.ar')
+  ('estudioconsultum@gmail.com')
 on conflict do nothing;
