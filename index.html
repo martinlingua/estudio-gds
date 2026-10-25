@@ -766,16 +766,15 @@ function mergeParams(d) {
   return m;
 }
 function mergeImport(j) {
-  const r = {clientes: 0, presupuestos: 0, tareas: 0, omitidas: 0};
+  // Sólo agrega lo que falta (por id). Lo que ya está en la nube no se pisa, así se puede volver a importar sin riesgo.
+  const r = {clientes: 0, presupuestos: 0, tareas: 0, existentes: 0};
   CLOUD_COLLS.forEach(c => (j[c] || []).forEach(item => {
-    if (c === 'tareas' && item.ejemplo) { r.omitidas++; return; }
     if (!item.id) item.id = uid();
-    const i = S[c].findIndex(x => x.id === item.id);
-    if (i >= 0) S[c][i] = item; else S[c].push(item);
-    r[c]++;
+    if (S[c].some(x => x.id === item.id)) { r.existentes++; return; }
+    S[c].push(item); r[c]++;
   }));
-  if (j.params) S.params = mergeParams(j.params);
-  if (j.equipo && j.equipo.length) S.equipo = j.equipo;
+  if (j.params && canon(S.params) === canon(DEFAULT_PARAMS)) S.params = mergeParams(j.params);
+  if (j.equipo && j.equipo.length && canon(S.equipo) === canon(blankState().equipo)) S.equipo = j.equipo;
   S.seq = Math.max(S.seq || 0, j.seq || 0, ...S.presupuestos.map(q => q.num || 0));
   sortColls();
   return r;
@@ -997,7 +996,7 @@ app().addEventListener('change', e => {
   const el = e.target, d = el.dataset;
   const num = () => parseNum(el.value);
   const q = (view.name === 'editor') ? getQ(view.id) : null;
-  if (el.id === 'imp') { const f = el.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { try { const j = JSON.parse(rd.result); if (!j.v) throw 0; if (Cloud.on) { const r = mergeImport(j); save(); toast(`Copia importada: ${r.presupuestos} presupuestos, ${r.clientes} clientes, ${r.tareas} tareas${r.omitidas ? ` (${r.omitidas} tareas de ejemplo omitidas)` : ''}.`); } else { S = j; save(); toast('Copia importada.'); } render(); } catch (x) { toast('El archivo no es una copia válida.'); } }; rd.readAsText(f); return; }
+  if (el.id === 'imp') { const f = el.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { try { const j = JSON.parse(rd.result); if (!j.v) throw 0; if (Cloud.on) { const r = mergeImport(j); save(); toast(`Se agregaron ${r.presupuestos} presupuestos, ${r.clientes} clientes y ${r.tareas} tareas.${r.existentes ? ` ${r.existentes} ya estaban y no se tocaron.` : ''}`); } else { S = j; save(); toast('Copia importada.'); } render(); } catch (x) { toast('El archivo no es una copia válida.'); } }; rd.readAsText(f); return; }
   if (el.id === 'qsearch') { view.f = el.value; render(); $('#qsearch').focus(); return; }
   if (el.id === 'qstate') { view.st = el.value; return render(); }
   if (el.id === 'tsearch') { view.q = el.value; render(); $('#tsearch').focus(); return; }
