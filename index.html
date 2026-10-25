@@ -24,6 +24,7 @@
   --btn:#efefea; --btn-ink:#141414; --ok:#6cc596; --warn:#e2b04f; --bad:#f08a7e; --info:#8db8e4;
   --ok-bg:#1a2c22; --warn-bg:#33290f; --bad-bg:#3a1c18; --info-bg:#16283a; color-scheme:dark;}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font:14px/1.45 var(--f-body);-webkit-text-size-adjust:100%}
 h1,h2,h3{font-family:var(--f-display);font-weight:500;margin:0;text-wrap:balance;letter-spacing:.01em}
@@ -788,10 +789,12 @@ const editingNow = () => { const a = document.activeElement; return !!(a && /^(I
 function afterSnapshot() { updateChrome(); if (editingNow()) { Cloud.pendingRender = true; return; } render(true); }
 const cloudDirty = () => !!Cloud.timer || !!Cloud.flushing || Cloud.syncState === 'error';
 
+// Deja sólo https://xxxx.supabase.co aunque se haya pegado con barra final o con /rest/v1
+function cfgUrl(u) { try { return new URL(String(u).trim()).origin; } catch (e) { return String(u).trim(); } }
 function cloudInit() {
   const c = window.SUPABASE_CONFIG;
   Cloud.on = true; S = blankState(); Cloud.gen = 0;
-  Cloud.sb = window.supabase.createClient(c.url, c.anonKey, {auth: {persistSession: true, autoRefreshToken: true, detectSessionInUrl: false}});
+  Cloud.sb = window.supabase.createClient(cfgUrl(c.url), String(c.anonKey).trim(), {auth: {persistSession: true, autoRefreshToken: true, detectSessionInUrl: false}});
   Cloud.sb.auth.onAuthStateChange((ev, session) => {
     const u = session && session.user;
     if (!u) { stopSync(); Cloud.user = null; Cloud.ready = false; Cloud.denied = false; S = blankState(); updateChrome(); render(); return; }
@@ -1056,7 +1059,8 @@ document.addEventListener('submit', ev => {
   ev.preventDefault(); const em = $('#lgEmail').value.trim(); Cloud.lastEmail = em; cloudLogin(em, $('#lgPw').value);
 });
 const cfg = window.SUPABASE_CONFIG;
-if (cfg && cfg.url && (!cfg.anonKey || !window.supabase)) { $('#app').innerHTML = `<div class="panel" style="max-width:520px;margin:60px auto"><h2>No se pudo conectar con Supabase</h2><p class="muted">${!cfg.anonKey ? 'Falta la clave anon en supabase-config.js.' : 'Revisá tu conexión a internet y recargá la página.'}</p></div>`; }
+const badHost = !!(cfg && cfg.url) && /(^|\.)supabase\.com$/.test((() => { try { return new URL(String(cfg.url).trim()).hostname; } catch (x) { return ''; } })());
+if (cfg && cfg.url && (badHost || !cfg.anonKey || !window.supabase)) { $('#app').innerHTML = `<div class="panel" style="max-width:520px;margin:60px auto"><h2>No se pudo conectar con Supabase</h2><p class="muted">${badHost ? 'La dirección que pegaste en supabase-config.js es la del panel. Tiene que ser la Project URL, con la forma https://xxxxxxxx.supabase.co' : !cfg.anonKey ? 'Falta la clave anon en supabase-config.js.' : 'Revisá tu conexión a internet y recargá la página.'}</p></div>`; }
 else if (cfg && cfg.url) cloudInit();
 else { load(); if (S.params && !S.params.muni) S.params.muni = clone(DEFAULT_PARAMS.muni); render(); }
 
