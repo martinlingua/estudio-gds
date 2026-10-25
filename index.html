@@ -71,6 +71,9 @@ th{font-family:var(--f-display);font-weight:500;font-size:12px;letter-spacing:.0
 tr:last-child td{border-bottom:0}
 td.r,th.r{text-align:right}
 tbody tr.clk{cursor:pointer}tbody tr.clk:hover td{background:var(--wash)}
+.dlgbg{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:60;padding:16px}
+.dlg{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:18px;width:100%;max-width:460px;max-height:85vh;overflow:auto}
+@media print{.dlgbg{display:none}}
 .chip{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11.5px;background:var(--wash);color:var(--muted);white-space:nowrap}
 .chip.ok{background:var(--ok-bg);color:var(--ok)}.chip.warn{background:var(--warn-bg);color:var(--warn)}.chip.bad{background:var(--bad-bg);color:var(--bad)}.chip.info{background:var(--info-bg);color:var(--info)}
 .muted{color:var(--muted)}.small{font-size:12px}
@@ -507,20 +510,21 @@ function render(keep) {
   else if (view.name === 'clientes') a.innerHTML = vClientes();
   else if (view.name === 'tarifas') a.innerHTML = vTarifas();
   if (!keep) window.scrollTo(0, 0);
+  renderDlg();
 }
 function go(name, id) { view = {name, id}; render(); }
 
 /* ---------- Presupuestos: lista ---------- */
 function vList() {
   const f = view.f || '', st = view.st || '';
-  const list = S.presupuestos.filter(q => (!st || q.estado === st) && (!f || (q.clienteNombre + ' ' + q.ref + ' ' + qLabel(q)).toLowerCase().includes(f.toLowerCase())));
-  const rows = list.map(q => { const c = computeQuote(q); return `<tr class="clk" data-open="${q.id}"><td>${qLabel(q)}</td><td>${fdate(q.fecha)}</td><td>${esc(q.clienteNombre || 'Sin cliente')}<div class="muted small">${esc(q.ref)}</div></td><td>${ACTOS[q.acto].label}</td><td class="r num">${money(c.totC)}</td><td class="r num">${money(c.totV)}</td><td><span class="chip ${q.estado === 'Aceptado' ? 'ok' : q.estado === 'Rechazado' ? 'bad' : q.estado === 'Enviado' ? 'info' : ''}">${q.estado}</span></td></tr>`; }).join('');
+  const list = S.presupuestos.filter(q => visFilter(q, view.own) && (!st || q.estado === st) && (!f || (q.clienteNombre + ' ' + q.ref + ' ' + qLabel(q)).toLowerCase().includes(f.toLowerCase())));
+  const rows = list.map(q => { const c = computeQuote(q); return `<tr class="clk" data-open="${q.id}"><td>${qLabel(q)}</td><td>${fdate(q.fecha)}</td><td>${esc(q.clienteNombre || 'Sin cliente')}<div class="muted small">${esc(q.ref)}</div></td><td>${ownChips(q)}</td><td>${ACTOS[q.acto].label}</td><td class="r num">${money(c.totC)}</td><td class="r num">${money(c.totV)}</td><td><span class="chip ${q.estado === 'Aceptado' ? 'ok' : q.estado === 'Rechazado' ? 'bad' : q.estado === 'Enviado' ? 'info' : ''}">${q.estado}</span></td></tr>`; }).join('');
   return `${S.ejemplo ? `<div class="note info noprint" style="margin-bottom:14px">Los presupuestos, clientes y tareas que ves son ejemplos armados con tus Excel. <button class="btn sm ghost" data-act="clearExample" type="button">Borrar los ejemplos</button></div>` : ''}
   <div class="bar"><h1>Presupuestos</h1><span class="sp"></span>
     <input id="qsearch" placeholder="Buscar cliente o referencia" value="${esc(f)}" style="width:240px">
-    <select id="qstate" style="width:auto"><option value="">Todos los estados</option>${ESTADOS_P.map(e => `<option ${e === st ? 'selected' : ''}>${e}</option>`).join('')}</select>
+    ${ownFilterSel('qown', view.own)}<select id="qstate" style="width:auto"><option value="">Todos los estados</option>${ESTADOS_P.map(e => `<option ${e === st ? 'selected' : ''}>${e}</option>`).join('')}</select>
     <button class="btn" data-act="newQuote" type="button">Nuevo presupuesto</button></div>
-  <div class="tw"><table><thead><tr><th>N°</th><th>Fecha</th><th>Cliente y operación</th><th>Acto</th><th class="r">Comprador</th><th class="r">Vendedor</th><th>Estado</th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="muted">No hay presupuestos. Creá el primero con “Nuevo presupuesto”.</td></tr>`}</tbody></table></div>`;
+  <div class="tw"><table><thead><tr><th>N°</th><th>Fecha</th><th>Cliente y operación</th><th>${Cloud.on ? 'Dueño' : ''}</th><th>Acto</th><th class="r">Comprador</th><th class="r">Vendedor</th><th>Estado</th></tr></thead><tbody>${rows || `<tr><td colspan="8" class="muted">No hay presupuestos. Creá el primero con “Nuevo presupuesto”.</td></tr>`}</tbody></table></div>`;
 }
 
 /* ---------- Presupuesto: editor ---------- */
@@ -576,7 +580,7 @@ function vEditor(q) {
   }).join('');
   const custom = q.custom.map((c, i) => `<tr><td></td><td><input type="text" data-x="${i}|label" value="${esc(c.label)}" placeholder="Concepto"></td><td>${inp(`data-x="${i}|monto"`, c.monto, 'mid')}</td><td class="r"><input class="mini" inputmode="decimal" data-x="${i}|pc" value="${fnum(100 - c.pv)}" aria-label="Porcentaje a cargo del comprador"></td><td class="r"><input class="mini" inputmode="decimal" data-x="${i}|pv" value="${fnum(c.pv)}" aria-label="Porcentaje a cargo del vendedor"></td><td colspan="${nU}"></td><td class="r"><button class="btn ghost sm" type="button" data-act="delCustom" data-i="${i}">Quitar</button></td></tr>`).join('');
 
-  return `<div class="bar"><button class="btn ghost sm" type="button" data-nav="presupuestos">‹ Presupuestos</button><h1>${qLabel(q)}</h1><span class="chip">${esc(q.clienteNombre || 'Sin cliente')}</span><span class="sp"></span>
+  return `<div class="bar"><button class="btn ghost sm" type="button" data-nav="presupuestos">‹ Presupuestos</button><h1>${qLabel(q)}</h1><span class="chip">${esc(q.clienteNombre || 'Sin cliente')}</span><span class="sp"></span>${shareBtn(q, 'presupuestos')}
     <button class="btn ghost" type="button" data-act="openDoc">Vista para el cliente</button>
     <button class="btn" type="button" data-act="mkTask">Crear seguimiento</button></div>
   <div class="sumbar"><div class="sb"><span class="muted small">COMPRADOR</span><span class="big num" id="s_c"></span></div><div class="sb"><span class="muted small">VENDEDOR</span><span class="big num" id="s_v"></span></div><div class="sb"><span class="muted small">TOTAL</span><b class="big num" id="s_t"></b></div><div class="sb muted small" style="margin-left:auto"><span>Equivalente (dólar venta ${nf0.format(S.params.tcVenta)})</span><span class="num" id="s_u"></span></div></div>
@@ -601,7 +605,7 @@ function vEditor(q) {
      <div class="tw"><table><thead>${head}</thead><tbody>${lines}${custom}</tbody></table></div>
      <div class="bar" style="margin:10px 0 0"><button class="btn ghost sm" type="button" data-act="addCustom">Agregar otro concepto</button><span class="sp"></span><button class="btn ghost sm" type="button" data-act="refreshRates" title="Vuelve a tomar los porcentajes y valores de la pestaña Tarifas">Actualizar con tarifas vigentes</button></div></section>
    <section class="panel"><label class="f"><span class="h">Notas internas</span><textarea data-f="notas">${esc(q.notas)}</textarea></label>
-     <div class="bar" style="margin:12px 0 0"><button class="btn ghost sm" type="button" data-act="dupQuote">Duplicar</button><button class="btn ghost sm" type="button" data-act="delQuote">Eliminar presupuesto</button></div></section>
+     <div class="bar" style="margin:12px 0 0"><button class="btn ghost sm" type="button" data-act="dupQuote">Duplicar</button>${puedeGestionar(q) ? '<button class="btn ghost sm" type="button" data-act="delQuote">Eliminar presupuesto</button>' : '<span class="muted small">Sólo el dueño o un supervisor pueden eliminarlo.</span>'}</div></section>
      <section class="panel small muted">Los aportes usan la cartilla vigente: ${esc(P.vigenciaCartilla)}. Reparticiones: ${esc(P.vigenciaReparticiones)}. Este presupuesto guarda su propia copia de tarifas.</section></div>`;
 }
 
@@ -665,21 +669,21 @@ function taskFlags(t) {
 function taskCard(t) {
   const done = t.checklist.filter(c => c.done).length, n = t.checklist.length;
   return `<div class="card" data-task="${t.id}"><div class="t">${esc(t.titulo)}</div><div class="muted small">${esc(t.cliente || 'Sin cliente')} · ${esc(t.responsable || 'Sin asignar')}</div>
-   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${t.prioridad !== 'Normal' ? `<span class="chip ${t.prioridad === 'Urgente' ? 'bad' : 'warn'}">${t.prioridad}</span>` : ''}${taskFlags(t).map(([c, l]) => `<span class="chip ${c}">${l}</span>`).join('')}<span class="chip">${esc(t.tipo)}</span></div>
+   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${Cloud.on && !esMio(t) ? ownChips(t) : ''}${t.prioridad !== 'Normal' ? `<span class="chip ${t.prioridad === 'Urgente' ? 'bad' : 'warn'}">${t.prioridad}</span>` : ''}${taskFlags(t).map(([c, l]) => `<span class="chip ${c}">${l}</span>`).join('')}<span class="chip">${esc(t.tipo)}</span></div>
    ${n ? `<div class="prog"><i style="width:${Math.round(done / n * 100)}%"></i></div><div class="muted small">${done} de ${n} pasos</div>` : ''}</div>`;
 }
 function vTasks() {
   const mode = view.mode || 'tablero', resp = view.resp || '', q = (view.q || '').toLowerCase(), showDone = view.showDone;
-  let list = S.tareas.filter(t => (!resp || t.responsable === resp) && (!q || (t.titulo + t.cliente).toLowerCase().includes(q)));
+  let list = S.tareas.filter(t => visFilter(t, view.own) && (!resp || t.responsable === resp) && (!q || (t.titulo + t.cliente).toLowerCase().includes(q)));
   const open = list.filter(t => t.estado !== 'Finalizada');
   const venc = open.filter(t => taskFlags(t).some(f => f[0] === 'bad')).length, prox = open.filter(t => taskFlags(t).some(f => f[0] === 'warn')).length;
   const cols = ESTADOS_T.filter(e => showDone || e !== 'Finalizada');
   const body = mode === 'tablero'
     ? `<div class="kan">${cols.map(e => { const c = list.filter(t => t.estado === e); return `<div class="col"><h3>${e}<span>${c.length}</span></h3>${c.map(taskCard).join('') || '<div class="muted small">Sin tareas</div>'}</div>`; }).join('')}</div>`
-    : `<div class="tw"><table><thead><tr><th>Tarea</th><th>Cliente</th><th>Responsable</th><th>Estado</th><th>Vence</th><th>Avance</th></tr></thead><tbody>${list.filter(t => showDone || t.estado !== 'Finalizada').sort((a, b) => (a.vence || '9') < (b.vence || '9') ? -1 : 1).map(t => { const d = t.checklist.filter(c => c.done).length; return `<tr class="clk" data-task="${t.id}"><td>${esc(t.titulo)}<div style="display:flex;gap:6px;flex-wrap:wrap">${taskFlags(t).map(([c, l]) => `<span class="chip ${c}">${l}</span>`).join('')}</div></td><td>${esc(t.cliente)}</td><td>${esc(t.responsable)}</td><td>${t.estado}</td><td>${fdate(t.vence)}</td><td>${d}/${t.checklist.length}</td></tr>`; }).join('') || '<tr><td colspan="6" class="muted">Sin tareas.</td></tr>'}</tbody></table></div>`;
+    : `<div class="tw"><table><thead><tr><th>Tarea</th><th>Cliente</th><th>Responsable</th><th>Estado</th><th>Vence</th><th>Avance</th></tr></thead><tbody>${list.filter(t => showDone || t.estado !== 'Finalizada').sort((a, b) => (a.vence || '9') < (b.vence || '9') ? -1 : 1).map(t => { const d = t.checklist.filter(c => c.done).length; return `<tr class="clk" data-task="${t.id}"><td>${esc(t.titulo)}<div style="display:flex;gap:6px;flex-wrap:wrap">${Cloud.on && !esMio(t) ? ownChips(t) : ''}${taskFlags(t).map(([c, l]) => `<span class="chip ${c}">${l}</span>`).join('')}</div></td><td>${esc(t.cliente)}</td><td>${esc(t.responsable)}</td><td>${t.estado}</td><td>${fdate(t.vence)}</td><td>${d}/${t.checklist.length}</td></tr>`; }).join('') || '<tr><td colspan="6" class="muted">Sin tareas.</td></tr>'}</tbody></table></div>`;
   return `<div class="bar"><h1>Seguimiento</h1>${venc ? `<span class="chip bad">${venc} vencidas</span>` : ''}${prox ? `<span class="chip warn">${prox} próximas a vencer</span>` : ''}<span class="sp"></span>
     <div class="tabs"><button type="button" data-mode="tablero" aria-pressed="${mode === 'tablero'}">Tablero</button><button type="button" data-mode="lista" aria-pressed="${mode === 'lista'}">Lista</button></div>
-    <input id="tsearch" placeholder="Buscar" value="${esc(view.q || '')}" style="width:170px"><select id="tresp" style="width:auto"><option value="">Todos</option>${S.equipo.map(e => `<option ${e === resp ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
+    <input id="tsearch" placeholder="Buscar" value="${esc(view.q || '')}" style="width:170px">${ownFilterSel('town', view.own)}<select id="tresp" style="width:auto"><option value="">Todos</option>${S.equipo.map(e => `<option ${e === resp ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
     <label class="chk"><input type="checkbox" id="tdone" ${showDone ? 'checked' : ''}><span>Ver finalizadas</span></label>
     <button class="btn" type="button" data-act="newTask">Nueva tarea</button></div>${body}`;
 }
@@ -687,7 +691,7 @@ function vTaskEdit(t) {
   if (!t) return '';
   const pq = t.presupuestoId ? getQ(t.presupuestoId) : null;
   const done = t.checklist.filter(c => c.done).length;
-  return `<div class="bar"><button class="btn ghost sm" type="button" data-nav="seguimiento">‹ Seguimiento</button><h1>${esc(t.titulo)}</h1><span class="sp"></span>${pq ? `<button class="btn ghost sm" type="button" data-nav="editor" data-id="${pq.id}">Ver ${qLabel(pq)}</button>` : ''}</div>
+  return `<div class="bar"><button class="btn ghost sm" type="button" data-nav="seguimiento">‹ Seguimiento</button><h1>${esc(t.titulo)}</h1><span class="sp"></span>${shareBtn(t, 'tareas')}${pq ? `<button class="btn ghost sm" type="button" data-nav="editor" data-id="${pq.id}">Ver ${qLabel(pq)}</button>` : ''}</div>
   <div class="ed"><div><section class="panel"><div class="grid">
     <label class="f"><span class="h">Título</span><input type="text" data-t="titulo" value="${esc(t.titulo)}"></label>
     <label class="f"><span class="h">Tipo</span><select data-t="tipo">${TIPOS_T.map(x => `<option ${x === t.tipo ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
@@ -701,14 +705,14 @@ function vTaskEdit(t) {
    <section class="panel"><div class="bar" style="margin-bottom:6px"><h3>Pasos</h3><span class="muted small">${done} de ${t.checklist.length}</span><span class="sp"></span><button class="btn ghost sm" type="button" data-act="loadTpl">Cargar pasos sugeridos</button></div>
     ${t.checklist.map((c, i) => `<div class="chk ${c.done ? 'done' : ''}"><input type="checkbox" data-chk="${i}" ${c.done ? 'checked' : ''} id="ck${i}"><span style="flex:1">${esc(c.t)}</span><button class="btn ghost sm" type="button" data-act="delStep" data-i="${i}">Quitar</button></div>`).join('') || '<div class="muted small">Sin pasos todavía.</div>'}
     <div class="bar" style="margin:10px 0 0"><input id="newStep" placeholder="Agregar un paso" style="flex:1"><button class="btn sm" type="button" data-act="addStep">Agregar</button></div></section>
-   <section class="panel"><label class="f"><span class="h">Notas</span><textarea data-t="notas">${esc(t.notas)}</textarea></label><div class="bar" style="margin:12px 0 0"><button class="btn ghost sm" type="button" data-act="delTask">Eliminar tarea</button></div></section></div><div></div></div>`;
+   <section class="panel"><label class="f"><span class="h">Notas</span><textarea data-t="notas">${esc(t.notas)}</textarea></label><div class="bar" style="margin:12px 0 0">${puedeGestionar(t) ? '<button class="btn ghost sm" type="button" data-act="delTask">Eliminar tarea</button>' : '<span class="muted small">Sólo el dueño o un supervisor pueden eliminarla.</span>'}</div></section></div><div></div></div>`;
 }
 
 /* ---------- Clientes ---------- */
 function vClientes() {
   const id = view.cid, c = S.clientes.find(x => x.id === id);
-  const rows = S.clientes.map(x => { const esp = [x.honPct != null && `honorarios ${nf2.format(x.honPct)}%`, x.honMin != null && `mín ${money(x.honMin)}`, x.descHon != null && `desc. ${x.descHon}%`, x.todoComprador && 'todo a cargo del comprador', x.cobraEstudio === false && 'sin estudio de títulos'].filter(Boolean).join(' · '); return `<tr class="clk" data-cli="${x.id}"><td>${esc(x.nombre)}</td><td>${x.persona === 'sociedad' ? 'Sociedad' : 'Persona humana'}</td><td>${esp ? esc(esp) : '<span class="muted">Tarifa estándar</span>'}</td></tr>`; }).join('');
-  const form = c ? `<section class="panel"><h3>${esc(c.nombre || 'Nuevo cliente')}</h3><div class="grid" style="margin:10px 0">
+  const rows = S.clientes.map(x => { const esp = [x.honPct != null && `honorarios ${nf2.format(x.honPct)}%`, x.honMin != null && `mín ${money(x.honMin)}`, x.descHon != null && `desc. ${x.descHon}%`, x.todoComprador && 'todo a cargo del comprador', x.cobraEstudio === false && 'sin estudio de títulos'].filter(Boolean).join(' · '); return `<tr class="clk" data-cli="${x.id}"><td>${esc(x.nombre)} ${Cloud.on ? ownChips(x) : ''}</td><td>${x.persona === 'sociedad' ? 'Sociedad' : 'Persona humana'}</td><td>${esp ? esc(esp) : '<span class="muted">Tarifa estándar</span>'}</td></tr>`; }).join('');
+  const form = c ? `<section class="panel"><div class="bar" style="margin-bottom:0"><h3>${esc(c.nombre || 'Nuevo cliente')}</h3><span class="sp"></span>${shareBtn(c, 'clientes')}</div><div class="grid" style="margin:10px 0">
     <label class="f"><span class="h">Nombre o razón social</span><input type="text" data-cf="nombre" value="${esc(c.nombre)}"></label>
     <label class="f"><span class="h">CUIT / DNI</span><input type="text" data-cf="cuit" value="${esc(c.cuit)}"></label>
     <label class="f"><span class="h">Tipo</span><select data-cf="persona"><option value="particular" ${c.persona === 'particular' ? 'selected' : ''}>Persona humana</option><option value="sociedad" ${c.persona === 'sociedad' ? 'selected' : ''}>Sociedad</option></select></label></div>
@@ -722,7 +726,7 @@ function vClientes() {
     <label class="f"><span class="h">Cobrar derechos en certificados</span><select data-cf="cobraDerechos"><option value="1" ${c.cobraDerechos !== false ? 'selected' : ''}>Sí</option><option value="0" ${c.cobraDerechos === false ? 'selected' : ''}>No</option></select></label>
     <label class="f"><span class="h">Reparto de gastos</span><select data-cf="todoComprador"><option value="0" ${!c.todoComprador ? 'selected' : ''}>Estándar (comprador y vendedor)</option><option value="1" ${c.todoComprador ? 'selected' : ''}>Todo a cargo del comprador</option></select></label></div>
    <label class="f" style="margin-top:12px"><span class="h">Notas</span><textarea data-cf="notas">${esc(c.notas)}</textarea></label>
-   <div class="bar" style="margin:12px 0 0"><button class="btn" type="button" data-act="quoteFor" data-id="${c.id}">Nuevo presupuesto para este cliente</button><button class="btn ghost sm" type="button" data-act="delClient" data-id="${c.id}">Eliminar cliente</button></div></section>` : '';
+   <div class="bar" style="margin:12px 0 0"><button class="btn" type="button" data-act="quoteFor" data-id="${c.id}">Nuevo presupuesto para este cliente</button>${puedeGestionar(c) ? `<button class="btn ghost sm" type="button" data-act="delClient" data-id="${c.id}">Eliminar cliente</button>` : ''}</div></section>` : '';
   return `<div class="bar"><h1>Clientes</h1><span class="sp"></span><button class="btn" type="button" data-act="newClient">Nuevo cliente</button></div>
    <div class="ed" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)"><div class="tw"><table><thead><tr><th>Cliente</th><th>Tipo</th><th>Condiciones</th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="muted">Todavía no hay clientes.</td></tr>'}</tbody></table></div><div>${form || '<div class="muted">Elegí un cliente para ver o cambiar su tarifa.</div>'}</div></div>`;
 }
@@ -758,7 +762,56 @@ function vTarifas() {
 /* ===== Nube: Supabase (correo y contraseña + Postgres con RLS + tiempo real) ===== */
 const CLOUD_COLLS = ['clientes', 'presupuestos', 'tareas'];
 const canon = o => Array.isArray(o) ? '[' + o.map(canon).join(',') + ']' : (o && typeof o === 'object') ? '{' + Object.keys(o).sort().map(k => JSON.stringify(k) + ':' + canon(o[k])).join(',') + '}' : JSON.stringify(o === undefined ? null : o);
-const cleanDoc = o => { const c = JSON.parse(JSON.stringify(o)); delete c.id; return c; };
+const cleanDoc = o => { const c = JSON.parse(JSON.stringify(o)); delete c.id; delete c.dueno; delete c.compartido; return c; };
+const normShare = a => [...new Set((a || []).map(e => String(e).toLowerCase()))].sort();
+const hashOf = x => canon(cleanDoc(x)) + '#' + canon(normShare(x.compartido));
+const rowsSig = rows => canon(rows.map(r => [r.coleccion, r.id, r.data, r.owner || '', normShare(r.shared_with)]));
+
+/* ---- Dueño y permisos (sólo en modo nube) ---- */
+const myEmail = () => ((Cloud.user && Cloud.user.email) || '').toLowerCase();
+const teamMe = () => (Cloud.team || []).find(t => t.email === myEmail());
+const isSup = () => Cloud.on && !!teamMe() && teamMe().rol === 'supervisor';
+const esMio = x => !Cloud.on || !x.dueno || x.dueno === myEmail();
+const puedeGestionar = x => esMio(x) || isSup();
+const personName = e => { const t = (Cloud.team || []).find(t => t.email === e); return (t && t.nombre) || String(e || '').split('@')[0] || 'otra persona'; };
+const visFilter = (x, mode) => {
+  if (!Cloud.on || !mode) return true;
+  if (mode === 'mios') return esMio(x);
+  if (mode === 'comp') return !esMio(x) && normShare(x.compartido).includes(myEmail());
+  if (mode === 'otros') return !esMio(x) && !normShare(x.compartido).includes(myEmail());
+  return true;
+};
+const ownFilterSel = (id, cur) => !Cloud.on ? '' : `<select id="${id}" style="width:auto"><option value="">Todo lo que veo</option><option value="mios" ${cur === 'mios' ? 'selected' : ''}>Mis cosas</option><option value="comp" ${cur === 'comp' ? 'selected' : ''}>Compartido conmigo</option>${isSup() ? `<option value="otros" ${cur === 'otros' ? 'selected' : ''}>De otras personas (supervisor)</option>` : ''}</select>`;
+const ownChips = x => !Cloud.on ? '' : (esMio(x) ? (normShare(x.compartido).length ? `<span class="chip">Compartido con ${normShare(x.compartido).length}</span>` : '<span class="chip">Privado</span>') : `<span class="chip info">De ${esc(personName(x.dueno))}</span>`);
+const shareBtn = (x, coll) => !Cloud.on ? '' : `${ownChips(x)}<button class="btn ghost sm" type="button" data-act="share" data-c="${coll}" data-id="${x.id}">${puedeGestionar(x) ? 'Compartir' : 'Quién lo ve'}</button>`;
+const WHAT = {presupuestos: 'este presupuesto', tareas: 'esta tarea', clientes: 'este cliente'};
+function shareDlgHtml() {
+  const d = Cloud.dlg; if (!d) return '';
+  const x = (S[d.c] || []).find(z => z.id === d.id); if (!x) return '';
+  const can = puedeGestionar(x), owner = x.dueno || myEmail(), sel = normShare(x.compartido);
+  const people = (Cloud.team || []).filter(t => t.email !== owner);
+  const rows = people.map(t => `<label class="chk" style="padding:6px 0"><input type="checkbox" data-shr="${esc(t.email)}" ${sel.includes(t.email) || t.rol === 'supervisor' ? 'checked' : ''} ${!can || t.rol === 'supervisor' ? 'disabled' : ''}><span style="flex:1">${esc(t.nombre || t.email)}${t.nombre ? `<span class="muted small"> · ${esc(t.email)}</span>` : ''}${t.rol === 'supervisor' ? ' <span class="chip">supervisor: ve todo</span>' : ''}</span></label>`).join('');
+  return `<div id="dlgbg" class="dlgbg"><div class="dlg" role="dialog" aria-modal="true"><div class="bar" style="margin-bottom:6px"><h3>Compartir ${WHAT[d.c]}</h3><span class="sp"></span><button class="btn ghost sm" type="button" data-act="closeDlg">Cerrar</button></div>
+   <p class="muted small" style="margin:0 0 10px">Dueño: <b>${esc(esMio(x) ? 'vos' : personName(owner))}</b>. ${can ? 'Las personas marcadas pueden ver y editar, pero no eliminar. Sólo el dueño y los supervisores cambian esto.' : 'Sólo el dueño o un supervisor pueden cambiar con quién se comparte.'}</p>
+   ${rows || '<div class="muted small">No hay otras cuentas en el equipo.</div>'}
+   ${can && d.c === 'presupuestos' ? '<p class="muted small" style="margin:10px 0 0">Al compartir un presupuesto también se comparten su cliente y las tareas de seguimiento vinculadas, si son tuyos.</p>' : ''}</div></div>`;
+}
+function renderDlg() {
+  let el = document.getElementById('dlgwrap'); const h = Cloud.on && Cloud.dlg ? shareDlgHtml() : '';
+  if (!h) { Cloud.dlg = null; if (el) el.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'dlgwrap'; document.body.appendChild(el); }
+  el.innerHTML = h;
+}
+function toggleShare(coll, id, email, on) {
+  const x = S[coll].find(z => z.id === id); if (!x || !puedeGestionar(x)) return;
+  const add = o => { const s = new Set(normShare(o.compartido)); on ? s.add(email) : s.delete(email); o.compartido = [...s]; };
+  add(x);
+  if (on && coll === 'presupuestos') {
+    const cli = S.clientes.find(c => c.id === x.clienteId); if (cli && puedeGestionar(cli)) add(cli);
+    S.tareas.filter(t => t.presupuestoId === x.id && puedeGestionar(t)).forEach(add);
+  }
+  save(); render(true);
+}
 function blankState() { return {v: 1, params: clone(DEFAULT_PARAMS), clientes: [], presupuestos: [], tareas: [], equipo: ['Escribana', 'Procuración', 'Administración'], seq: 0, ejemplo: false}; }
 function mergeParams(d) {
   const m = clone(DEFAULT_PARAMS);
@@ -770,6 +823,7 @@ function mergeImport(j) {
   const r = {clientes: 0, presupuestos: 0, tareas: 0, existentes: 0};
   CLOUD_COLLS.forEach(c => (j[c] || []).forEach(item => {
     if (!item.id) item.id = uid();
+    delete item.dueno; item.compartido = [];  // lo importado queda a nombre de quien importa
     if (S[c].some(x => x.id === item.id)) { r.existentes++; return; }
     S[c].push(item); r[c]++;
   }));
@@ -796,13 +850,16 @@ function cloudInit() {
   Cloud.sb = window.supabase.createClient(cfgUrl(c.url), String(c.anonKey).trim(), {auth: {persistSession: true, autoRefreshToken: true, detectSessionInUrl: false}});
   Cloud.sb.auth.onAuthStateChange((ev, session) => {
     const u = session && session.user;
-    if (!u) { stopSync(); Cloud.user = null; Cloud.ready = false; Cloud.denied = false; S = blankState(); updateChrome(); render(); return; }
+    if (!u) { stopSync(); Cloud.user = null; Cloud.ready = false; Cloud.denied = false; Cloud.team = []; Cloud.dlg = null; S = blankState(); updateChrome(); render(); renderDlg(); return; }
     if (Cloud.user && Cloud.user.id === u.id) { Cloud.user = u; return; } // renovación de sesión
-    Cloud.user = u; Cloud.denied = false; Cloud.err = '';
+    Cloud.user = u; Cloud.denied = false; Cloud.err = ''; Cloud.needMigration = false;
     setTimeout(() => { startSync(); updateChrome(); render(); }, 0);
   });
   window.addEventListener('online', () => { setSync(Cloud.syncState === 'offline' ? 'ok' : Cloud.syncState); if (Cloud.ready) { cloudSchedule(); if (Cloud.wasDown) reload(); } });
   window.addEventListener('offline', () => setSync('offline'));
+  const quiet = () => Cloud.ready && document.visibilityState === 'visible' && !cloudDirty() && !editingNow();
+  setInterval(() => { if (quiet()) reload(); }, 60000);   // detecta cuando alguien deja de compartirte algo
+  document.addEventListener('visibilitychange', () => { if (quiet()) reload(); });
   window.addEventListener('beforeunload', e => { if (Cloud.ready && cloudDirty()) { e.preventDefault(); e.returnValue = ''; } });
   document.addEventListener('focusout', () => { if (Cloud.pendingRender) setTimeout(() => { if (!editingNow()) { Cloud.pendingRender = false; render(true); } }, 60); });
 }
@@ -835,7 +892,7 @@ function cloudError(err) {
 async function fetchAll() {
   const rows = [];
   for (let from = 0; ; from += 1000) {
-    const {data, error} = await Cloud.sb.from('docs').select('coleccion,id,data').order('coleccion').order('id').range(from, from + 999);
+    const {data, error} = await Cloud.sb.from('docs').select('coleccion,id,data,owner,shared_with').order('coleccion').order('id').range(from, from + 999);
     if (error) throw error;
     rows.push(...data); if (data.length < 1000) break;
   }
@@ -845,8 +902,9 @@ function applyRows(rows) {
   const ns = blankState(); Cloud.hashes = {clientes: {}, presupuestos: {}, tareas: {}, app: ''};
   rows.forEach(r => {
     if (r.coleccion === 'config' && r.id === 'app') { const d = r.data || {}; ns.params = mergeParams(d.params); if (d.equipo) ns.equipo = d.equipo; ns.seq = d.seq || 0; Cloud.hashes.app = canon({params: ns.params, equipo: ns.equipo, seq: ns.seq}); }
-    else if (CLOUD_COLLS.includes(r.coleccion)) { const data = Object.assign({}, r.data, {id: r.id}); ns[r.coleccion].push(data); Cloud.hashes[r.coleccion][r.id] = canon(cleanDoc(data)); }
+    else if (CLOUD_COLLS.includes(r.coleccion)) { const data = Object.assign({}, r.data, {id: r.id, dueno: (r.owner || '').toLowerCase(), compartido: normShare(r.shared_with)}); ns[r.coleccion].push(data); Cloud.hashes[r.coleccion][r.id] = hashOf(data); }
   });
+  Cloud.sig = rowsSig(rows);
   S = ns; sortColls();
 }
 async function startSync() {
@@ -856,14 +914,21 @@ async function startSync() {
     if (my !== Cloud.gen) return;
     if (m.error) throw m.error;
     if (!m.data) { Cloud.denied = true; updateChrome(); render(); return; }
+    const tm = await Cloud.sb.rpc('lista_equipo'); if (my !== Cloud.gen) return;
+    if (tm.error) throw tm.error;
+    Cloud.team = (tm.data || []).map(t => ({email: String(t.email).toLowerCase(), nombre: t.nombre || '', rol: t.rol || 'usuario'}));
     const rows = await fetchAll(); if (my !== Cloud.gen) return;
     applyRows(rows); subscribe();
     Cloud.ready = true; setSync('ok'); cloudSchedule(); render();
-  } catch (e) { if (my === Cloud.gen) cloudError(e); }
+  } catch (e) {
+    if (my !== Cloud.gen) return;
+    if (e && (e.code === '42703' || e.code === '42883' || e.code === 'PGRST202' || /lista_equipo|owner/.test(e.message || ''))) { Cloud.needMigration = true; updateChrome(); render(); return; }
+    cloudError(e);
+  }
 }
 async function reload() {
   if (!Cloud.ready) return;
-  try { if (cloudDirty()) { clearTimeout(Cloud.timer); Cloud.timer = null; await cloudFlush(); } applyRows(await fetchAll()); Cloud.wasDown = false; setSync('ok'); afterSnapshot(); } catch (e) { cloudError(e); }
+  try { if (cloudDirty()) { clearTimeout(Cloud.timer); Cloud.timer = null; await cloudFlush(); } const rows = await fetchAll(); Cloud.wasDown = false; setSync('ok'); if (rowsSig(rows) === Cloud.sig) return; applyRows(rows); afterSnapshot(); } catch (e) { cloudError(e); }
 }
 function subscribe() {
   Cloud.chan = Cloud.sb.channel('estudio-docs').on('postgres_changes', {event: '*', schema: 'public', table: 'docs'}, onChange)
@@ -881,12 +946,13 @@ async function onChange(p) {
   }
   if (!CLOUD_COLLS.includes(c)) return;
   const arr = S[c], i = arr.findIndex(x => x.id === id);
-  if (t === 'DELETE') { const had = i >= 0 || (id in Cloud.hashes[c]); if (i >= 0) arr.splice(i, 1); delete Cloud.hashes[c][id]; if (had) afterSnapshot(); return; }
-  let d = row.data; if (d === undefined) { const r = await Cloud.sb.from('docs').select('data').eq('coleccion', c).eq('id', id).maybeSingle(); d = r.data && r.data.data; } if (!d) return;
-  const data = Object.assign({}, d, {id}), h = canon(cleanDoc(data));
-  if (Cloud.hashes[c][id] === h) return;
+  if (t === 'DELETE') { const had = i >= 0 || (id in Cloud.hashes[c]); Cloud.sig = null; if (i >= 0) arr.splice(i, 1); delete Cloud.hashes[c][id]; if (had) afterSnapshot(); return; }
+  let d = row.data, ow = row.owner, sh = row.shared_with;
+  if (d === undefined || ow === undefined) { const r = await Cloud.sb.from('docs').select('data,owner,shared_with').eq('coleccion', c).eq('id', id).maybeSingle(); if (!r.data) return; d = r.data.data; ow = r.data.owner; sh = r.data.shared_with; } if (!d) return;
+  const data = Object.assign({}, d, {id, dueno: (ow || '').toLowerCase(), compartido: normShare(sh)}), h = hashOf(data);
+  if (Cloud.hashes[c][id] === h) { const k = S[c].find(x => x.id === id); if (k && !k.dueno) k.dueno = data.dueno; return; }
   const j = S[c].findIndex(x => x.id === id); if (j >= 0) S[c][j] = data; else S[c].push(data);
-  Cloud.hashes[c][id] = h; sortColls(); afterSnapshot();
+  Cloud.hashes[c][id] = h; Cloud.sig = null; sortColls(); afterSnapshot();
 }
 function cloudSchedule() { if (!Cloud.ready) return; setSync('saving'); clearTimeout(Cloud.timer); Cloud.timer = setTimeout(() => { Cloud.timer = null; cloudFlush(); }, 450); }
 async function cloudFlush() {
@@ -897,7 +963,7 @@ async function cloudFlush() {
     const sets = [], dels = {};
     CLOUD_COLLS.forEach(c => {
       const seen = new Set();
-      S[c].forEach(x => { if (!x.id) x.id = uid(); seen.add(x.id); const d = cleanDoc(x), h = canon(d); if (Cloud.hashes[c][x.id] !== h) sets.push({c, id: x.id, d, h}); });
+      S[c].forEach(x => { if (!x.id) x.id = uid(); if (!x.dueno) x.dueno = myEmail(); x.compartido = normShare(x.compartido); seen.add(x.id); const d = cleanDoc(x), h = hashOf(x); if (Cloud.hashes[c][x.id] !== h) sets.push({c, id: x.id, d, h, sh: x.compartido}); });
       Object.keys(Cloud.hashes[c]).forEach(id => { if (!seen.has(id)) (dels[c] = dels[c] || []).push(id); });
     });
     const ad = {params: S.params, equipo: S.equipo, seq: S.seq || 0}, ah = canon(ad);
@@ -907,11 +973,18 @@ async function cloudFlush() {
     Object.entries(dels).forEach(([c, ids]) => ids.forEach(id => delete Cloud.hashes[c][id]));
     if (appChanged) Cloud.hashes.app = ah;
     try {
-      const rows = sets.map(o => ({coleccion: o.c, id: o.id, data: o.d}));
-      if (appChanged) rows.push({coleccion: 'config', id: 'app', data: JSON.parse(JSON.stringify(ad))});
-      for (let i = 0; i < rows.length; i += 40) { const r = await Cloud.sb.from('docs').upsert(rows.slice(i, i + 40), {onConflict: 'coleccion,id'}); if (r.error) throw r.error; }
+      const rows = sets.map(o => ({coleccion: o.c, id: o.id, data: o.d, shared_with: o.sh}));
+      if (appChanged) rows.push({coleccion: 'config', id: 'app', data: JSON.parse(JSON.stringify(ad)), shared_with: []});
+      let denied = 0;
+      for (let i = 0; i < rows.length; i += 40) {
+        const chunk = rows.slice(i, i + 40), r = await Cloud.sb.from('docs').upsert(chunk, {onConflict: 'coleccion,id'});
+        if (!r.error) continue;
+        if (r.error.code !== '42501') throw r.error;
+        for (const row of chunk) { const r1 = await Cloud.sb.from('docs').upsert([row], {onConflict: 'coleccion,id'}); if (r1.error) { if (r1.error.code === '42501') denied++; else throw r1.error; } }
+      }
+      if (denied) { Cloud.needReload = true; toast('Algún cambio no se guardó: ya no tenés acceso a ese elemento (te lo dejaron de compartir). Se actualiza la lista.'); }
       for (const [c, ids] of Object.entries(dels)) { const r = await Cloud.sb.from('docs').delete().eq('coleccion', c).in('id', ids); if (r.error) throw r.error; }
-      setSync('ok');
+      Cloud.sig = null; setSync('ok');
     } catch (e) {
       sets.forEach(o => delete Cloud.hashes[o.c][o.id]);
       Object.entries(dels).forEach(([c, ids]) => ids.forEach(id => Cloud.hashes[c][id] = '?'));
@@ -919,7 +992,7 @@ async function cloudFlush() {
       setSync('error');
       if (e && (e.code === '42501' || e.code === 403)) cloudError(e); else toast('No se pudo guardar en la nube. Se reintenta con el próximo cambio.');
     }
-  } finally { Cloud.flushing = false; if (Cloud.again) { Cloud.again = false; cloudSchedule(); } }
+  } finally { Cloud.flushing = false; if (Cloud.again) { Cloud.again = false; cloudSchedule(); } if (Cloud.needReload) { Cloud.needReload = false; setTimeout(reload, 80); } }
 }
 function setSync(st) {
   Cloud.syncState = st;
@@ -935,6 +1008,7 @@ function updateChrome() {
   setSync(Cloud.syncState || 'ok');
 }
 function vGate() {
+  if (Cloud.user && Cloud.needMigration) return `<div class="panel" style="max-width:520px;margin:60px auto"><h2>Falta actualizar la base de datos</h2><p class="muted">Esta versión usa dueños y permisos para compartir. Abrí Supabase, entrá a SQL Editor, pegá el contenido de <b>setup.sql</b> y apretá Run. Después recargá esta página.</p><button class="btn" type="button" data-act="logout">Salir</button></div>`;
   if (Cloud.user && Cloud.denied) return `<div class="panel" style="max-width:480px;margin:60px auto"><h2>Esta cuenta no tiene acceso</h2><p class="muted">${esc(Cloud.user.email || '')} no figura en la lista de cuentas autorizadas (tabla acceso). Pedí que la agreguen o entrá con otra cuenta.</p><button class="btn" type="button" data-act="logout">Salir</button></div>`;
   if (Cloud.user) return `<div class="panel" style="max-width:480px;margin:60px auto"><h2>Cargando datos…</h2><p class="muted">Conectando con la nube.</p></div>`;
   return `<form data-form="login" class="panel" style="max-width:420px;margin:60px auto;display:grid;gap:12px"><div style="text-align:center"><img alt="" src="${window.LOGO_MARK}" style="height:90px;margin-bottom:10px"><h1 style="font-size:22px">Gestión del Estudio</h1></div>
@@ -968,25 +1042,27 @@ document.addEventListener('click', e => {
     case 'addCustom': q.custom.push({label: '', monto: 0, pv: 0}); save(); return render();
     case 'delCustom': q.custom.splice(+d.i, 1); save(); return render();
     case 'refreshRates': { const cli = S.clientes.find(c => c.id === q.clienteId); const fresh = newQuote(q.clienteId, q.acto); fresh.persona = q.persona; fresh.cfg = initCfg(Object.assign(fresh, {persona: q.persona}), q.cfg); q.params = fresh.params; q.cfg = fresh.cfg; void cli; save(); render(); return toast('Tarifas actualizadas. Se mantuvieron los conceptos incluidos y el reparto.'); }
-    case 'dupQuote': { const c = clone(q); c.id = uid(); c.num = nextNum(); c.fecha = today(); c.estado = 'Borrador'; S.presupuestos.unshift(c); save(); toast('Presupuesto duplicado.'); return go('editor', c.id); }
-    case 'delQuote': if (!confirmTwice('q' + q.id, t, 'Tocá otra vez para eliminar este presupuesto.')) return; S.presupuestos = S.presupuestos.filter(x => x !== q); save(); return go('presupuestos');
+    case 'dupQuote': { const c = clone(q); c.id = uid(); delete c.dueno; c.compartido = []; c.num = nextNum(); c.fecha = today(); c.estado = 'Borrador'; S.presupuestos.unshift(c); save(); toast('Presupuesto duplicado.'); return go('editor', c.id); }
+    case 'delQuote': if (!puedeGestionar(q)) return toast('Sólo el dueño o un supervisor pueden eliminar este presupuesto.'); if (!confirmTwice('q' + q.id, t, 'Tocá otra vez para eliminar este presupuesto.')) return; S.presupuestos = S.presupuestos.filter(x => x !== q); save(); return go('presupuestos');
     case 'openDoc': return go('doc', q.id);
     case 'print': return window.print();
     case 'copyDoc': { const txt = docText(q); navigator.clipboard?.writeText(txt).then(() => toast('Texto copiado.'), () => toast('No se pudo copiar. Seleccioná el texto manualmente.')); return; }
     case 'mkTask': {
       const tk = {id: uid(), titulo: (q.acto === 'compraventa' ? 'Escritura: ' : ACTOS[q.acto].label + ': ') + (q.ref || q.clienteNombre || qLabel(q)), tipo: q.acto === 'poder' ? 'Poder / certificación' : 'Escritura', cliente: q.clienteNombre, presupuestoId: q.id, responsable: S.equipo[0] || '', prioridad: 'Normal', estado: 'Pendiente', vence: '', firma: '', notas: '', checklist: [], creada: today()};
-      tk.checklist = (TEMPLATES[tk.tipo] || []).map(n => ({t: n, done: false})); S.tareas.unshift(tk); save(); toast('Tarea creada en Seguimiento.'); return go('tarea', tk.id);
+      tk.checklist = (TEMPLATES[tk.tipo] || []).map(n => ({t: n, done: false})); if (Cloud.on) { const s = new Set([...(q.compartido || []), q.dueno].filter(Boolean)); s.delete(myEmail()); tk.compartido = [...s]; } S.tareas.unshift(tk); save(); toast('Tarea creada en Seguimiento.'); return go('tarea', tk.id);
     }
     case 'newTask': { const tk = {id: uid(), titulo: 'Nueva tarea', tipo: 'Escritura', cliente: '', presupuestoId: '', responsable: S.equipo[0] || '', prioridad: 'Normal', estado: 'Pendiente', vence: '', firma: '', notas: '', checklist: [], creada: today()}; S.tareas.unshift(tk); save(); return go('tarea', tk.id); }
     case 'loadTpl': { const tk = S.tareas.find(x => x.id === view.id); const tpl = TEMPLATES[tk.tipo] || []; if (!tpl.length) return toast('Este tipo no tiene pasos sugeridos.'); const have = new Set(tk.checklist.map(c => c.t)); tpl.forEach(n => { if (!have.has(n)) tk.checklist.push({t: n, done: false}); }); save(); return render(); }
     case 'addStep': { const el = $('#newStep'); if (el.value.trim()) { S.tareas.find(x => x.id === view.id).checklist.push({t: el.value.trim(), done: false}); save(); render(); $('#newStep').focus(); } return; }
     case 'delStep': S.tareas.find(x => x.id === view.id).checklist.splice(+d.i, 1); save(); return render();
-    case 'delTask': if (!confirmTwice('t' + view.id, t, 'Tocá otra vez para eliminar esta tarea.')) return; S.tareas = S.tareas.filter(x => x.id !== view.id); save(); return go('seguimiento');
+    case 'delTask': if (!puedeGestionar(S.tareas.find(x => x.id === view.id))) return toast('Sólo el dueño o un supervisor pueden eliminar esta tarea.'); if (!confirmTwice('t' + view.id, t, 'Tocá otra vez para eliminar esta tarea.')) return; S.tareas = S.tareas.filter(x => x.id !== view.id); save(); return go('seguimiento');
     case 'newClient': { const c = {id: uid(), nombre: 'Nuevo cliente', cuit: '', persona: 'particular', todoComprador: false, honPct: null, honMin: null, descHon: null, derechosPct: null, estudioPct: null, cobraEstudio: true, cobraDerechos: true, notas: ''}; S.clientes.push(c); save(); view = {name: 'clientes', cid: c.id}; return render(); }
-    case 'delClient': if (!confirmTwice('c' + d.id, t, 'Tocá otra vez para eliminar el cliente. Los presupuestos hechos no se borran.')) return; S.clientes = S.clientes.filter(c => c.id !== d.id); save(); view = {name: 'clientes'}; return render();
+    case 'delClient': if (!puedeGestionar(S.clientes.find(x => x.id === d.id))) return toast('Sólo el dueño o un supervisor pueden eliminar este cliente.'); if (!confirmTwice('c' + d.id, t, 'Tocá otra vez para eliminar el cliente. Los presupuestos hechos no se borran.')) return; S.clientes = S.clientes.filter(c => c.id !== d.id); save(); view = {name: 'clientes'}; return render();
     case 'clearExample': if (!confirmTwice('ex', t, 'Tocá otra vez para borrar clientes, presupuestos y tareas de ejemplo.')) return; S.clientes = []; S.presupuestos = []; S.tareas = []; S.ejemplo = false; S.seq = 0; save(); return render();
     case 'resetParams': if (!confirmTwice('rp', t, 'Tocá otra vez para volver a los valores de fábrica.')) return; S.params = clone(DEFAULT_PARAMS); save(); return render();
     case 'logout': return cloudLogout();
+    case 'share': Cloud.dlg = {c: d.c, id: d.id}; return renderDlg();
+    case 'closeDlg': Cloud.dlg = null; return renderDlg();
     case 'changePw': { const el = $('#newPw'); cloudChangePw(el.value).then(() => { el.value = ''; }); return; }
     case 'exportData': { const blob = new Blob([JSON.stringify(S, null, 1)], {type: 'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'estudio-copia-' + today() + '.json'; a.click(); return; }
   }
@@ -999,6 +1075,7 @@ app().addEventListener('change', e => {
   if (el.id === 'imp') { const f = el.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { try { const j = JSON.parse(rd.result); if (!j.v) throw 0; if (Cloud.on) { const r = mergeImport(j); save(); toast(`Se agregaron ${r.presupuestos} presupuestos, ${r.clientes} clientes y ${r.tareas} tareas.${r.existentes ? ` ${r.existentes} ya estaban y no se tocaron.` : ''}`); } else { S = j; save(); toast('Copia importada.'); } render(); } catch (x) { toast('El archivo no es una copia válida.'); } }; rd.readAsText(f); return; }
   if (el.id === 'qsearch') { view.f = el.value; render(); $('#qsearch').focus(); return; }
   if (el.id === 'qstate') { view.st = el.value; return render(); }
+  if (el.id === 'qown' || el.id === 'town') { view.own = el.value; return render(); }
   if (el.id === 'tsearch') { view.q = el.value; render(); $('#tsearch').focus(); return; }
   if (el.id === 'tresp') { view.resp = el.value; return render(); }
   if (el.id === 'tdone') { view.showDone = el.checked; return render(); }
@@ -1053,6 +1130,12 @@ $('#themeBtn').addEventListener('click', () => {
 });
 try { const th = localStorage.getItem(KEY + '-theme'); if (th) document.documentElement.dataset.theme = th; } catch (e) {}
 
+document.addEventListener('change', ev => {
+  const el = ev.target; if (!el.dataset || !el.dataset.shr || !Cloud.dlg) return;
+  toggleShare(Cloud.dlg.c, Cloud.dlg.id, el.dataset.shr, el.checked);
+});
+document.addEventListener('click', ev => { if (ev.target.id === 'dlgbg') { Cloud.dlg = null; renderDlg(); } });
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && Cloud.dlg) { Cloud.dlg = null; renderDlg(); } });
 document.addEventListener('submit', ev => {
   const f = ev.target.closest && ev.target.closest('[data-form="login"]'); if (!f) return;
   ev.preventDefault(); const em = $('#lgEmail').value.trim(); Cloud.lastEmail = em; cloudLogin(em, $('#lgPw').value);
