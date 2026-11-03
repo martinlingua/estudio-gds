@@ -198,7 +198,7 @@ const DEFAULT_PARAMS = {
   irrigacion: 34586.5, aysamPart: 63598.56, aysamSoc: 66752.21, inscripcion: 280000,
   tcCompra: 1480, tcVenta: 1530,
   validezDias: 15,
-  honActo: {  // {pct, min}: sólo compraventa surge de los archivos; el resto queda para completar
+  honActo: {  // {pct, min}: solo compraventa surge de los archivos; el resto queda para completar
     compraventa: {pct: 2, min: 996000}, hipoteca: {pct: 1, min: 0}, hipSimult: {pct: 0.5, min: 0},
     donacion: {pct: 0, min: 0}, permuta: {pct: 0, min: 0}, cancelacion: {pct: 0, min: 0}, cesion: {pct: 0, min: 0},
     sociedad: {pct: 0, min: 0}, particion: {pct: 0, min: 0}, poder: {pct: 0, min: 0}, ph: {pct: 0, min: 0}, fijo: {pct: 0, min: 0}
@@ -240,6 +240,23 @@ const ACTOS = {
   fijo: {label: 'Otro acto con aporte fijo', aporte: 'fijo', base: false,
     lines: ['aportes','inscripcion','llanas','honorarios','segTest','consulta']}
 };
+
+// Nombres de las dos partes según el acto. [0] es la primera parte (a la izquierda), [1] la segunda.
+// Internamente la primera es el lado "vendedor" (pv) y la segunda el lado "comprador" (100 - pv).
+const PARTES = {
+  compraventa: ['Vendedor', 'Comprador'], hipoteca: ['Acreedor', 'Deudor'], donacion: ['Donante', 'Donatario'],
+  permuta: ['Permutante 1', 'Permutante 2'], cancelacion: ['Acreedor', 'Deudor'], cesion: ['Cedente', 'Cesionario'],
+  sociedad: [null, 'Socio'], particion: ['Cónyuge 1', 'Cónyuge 2'], poder: ['Otorgante', 'Apoderado'],
+  ph: ['Desarrollador', 'Comprador'], fijo: ['A completar 1', 'A completar 2']
+};
+const unaParte = q => q.acto === 'sociedad';
+const parteDef = (q, i) => (PARTES[q.acto] || PARTES.compraventa)[i];
+const parteNom = (q, i) => String((i === 0 ? q.parteV : q.parteC) || '').trim() || parteDef(q, i);
+const parteEsPropio = (q, i) => !!String((i === 0 ? q.parteV : q.parteC) || '').trim();
+// Para el documento del cliente: si quedó "A completar", se usa "Parte 1/2"
+const parteDoc = (q, i) => parteEsPropio(q, i) ? parteNom(q, i) : (q.acto === 'fijo' ? 'Parte ' + (i + 1) : parteNom(q, i));
+const aCargoDe = (q, i, mayus) => { const n = parteDoc(q, i); const t = parteEsPropio(q, i) ? 'de ' + n : 'del ' + n.toLowerCase(); return mayus ? t.toUpperCase() : t; };
+const corto = n => n.length > 11 ? n.slice(0, 10) + '…' : n;
 
 // kind: pct | pctfijo | fijo | qty | hon | aporte | pcthon | pctmin
 const LINE_SPECS = [
@@ -352,7 +369,7 @@ function computeQuote(q) {
     });
     const total = cells.reduce((a, c) => a + c.val, 0);
     lineTotals[k] = total;
-    const pv = clamp(+cfg.pv || 0, 0, 100);
+    const pv = q.acto === 'sociedad' ? 0 : clamp(+cfg.pv || 0, 0, 100);
     rows.push({k, label: s.label, on: !!cfg.on, cells, total, vend: total * pv / 100, comp: total * (100 - pv) / 100, pv});
   });
 
@@ -371,7 +388,7 @@ function computeQuote(q) {
     void apCompra;
   }
   const custom = (q.custom || []).map(c => {
-    const t = +c.monto || 0, pv = clamp(+c.pv || 0, 0, 100);
+    const t = +c.monto || 0, pv = q.acto === 'sociedad' ? 0 : clamp(+c.pv || 0, 0, 100);
     return {label: c.label || 'Otro concepto', total: t, vend: t * pv / 100, comp: t * (100 - pv) / 100, pv};
   });
 
@@ -518,13 +535,13 @@ function go(name, id) { view = {name, id}; render(); }
 function vList() {
   const f = view.f || '', st = view.st || '';
   const list = S.presupuestos.filter(q => visFilter(q, view.own) && (!st || q.estado === st) && (!f || (q.clienteNombre + ' ' + q.ref + ' ' + qLabel(q)).toLowerCase().includes(f.toLowerCase())));
-  const rows = list.map(q => { const c = computeQuote(q); return `<tr class="clk" data-open="${q.id}"><td>${qLabel(q)}</td><td>${fdate(q.fecha)}</td><td>${esc(q.clienteNombre || 'Sin cliente')}<div class="muted small">${esc(q.ref)}</div></td><td>${ownChips(q)}</td><td>${ACTOS[q.acto].label}</td><td class="r num">${money(c.totC)}</td><td class="r num">${money(c.totV)}</td><td><span class="chip ${q.estado === 'Aceptado' ? 'ok' : q.estado === 'Rechazado' ? 'bad' : q.estado === 'Enviado' ? 'info' : ''}">${q.estado}</span></td></tr>`; }).join('');
+  const rows = list.map(q => { const c = computeQuote(q); return `<tr class="clk" data-open="${q.id}"><td>${qLabel(q)}</td><td>${fdate(q.fecha)}</td><td>${esc(q.clienteNombre || 'Sin cliente')}<div class="muted small">${esc(q.ref)}</div></td><td>${ownChips(q)}</td><td>${ACTOS[q.acto].label}</td><td class="r num">${unaParte(q) ? '<span class="muted">—</span>' : `${money(c.totV)}<div class="muted small">${esc(parteNom(q, 0))}</div>`}</td><td class="r num">${money(c.totC)}<div class="muted small">${esc(parteNom(q, 1))}</div></td><td><span class="chip ${q.estado === 'Aceptado' ? 'ok' : q.estado === 'Rechazado' ? 'bad' : q.estado === 'Enviado' ? 'info' : ''}">${q.estado}</span></td></tr>`; }).join('');
   return `${S.ejemplo ? `<div class="note info noprint" style="margin-bottom:14px">Los presupuestos, clientes y tareas que ves son ejemplos armados con tus Excel. <button class="btn sm ghost" data-act="clearExample" type="button">Borrar los ejemplos</button></div>` : ''}
   <div class="bar"><h1>Presupuestos</h1><span class="sp"></span>
     <input id="qsearch" placeholder="Buscar cliente o referencia" value="${esc(f)}" style="width:240px">
     ${ownFilterSel('qown', view.own)}<select id="qstate" style="width:auto"><option value="">Todos los estados</option>${ESTADOS_P.map(e => `<option ${e === st ? 'selected' : ''}>${e}</option>`).join('')}</select>
     <button class="btn" data-act="newQuote" type="button">Nuevo presupuesto</button></div>
-  <div class="tw"><table><thead><tr><th>N°</th><th>Fecha</th><th>Cliente y operación</th><th>${Cloud.on ? 'Dueño' : ''}</th><th>Acto</th><th class="r">Comprador</th><th class="r">Vendedor</th><th>Estado</th></tr></thead><tbody>${rows || `<tr><td colspan="8" class="muted">No hay presupuestos. Creá el primero con “Nuevo presupuesto”.</td></tr>`}</tbody></table></div>`;
+  <div class="tw"><table><thead><tr><th>N°</th><th>Fecha</th><th>Cliente y operación</th><th>${Cloud.on ? 'Dueño' : ''}</th><th>Acto</th><th class="r">Primera parte</th><th class="r">Segunda parte</th><th>Estado</th></tr></thead><tbody>${rows || `<tr><td colspan="8" class="muted">No hay presupuestos. Creá el primero con “Nuevo presupuesto”.</td></tr>`}</tbody></table></div>`;
 }
 
 /* ---------- Presupuesto: editor ---------- */
@@ -561,7 +578,7 @@ function vEditor(q) {
     <label class="f"><span class="h">Sellos hipoteca (%)</span>${inp('data-s="sellosPct"', q.simult.sellosPct != null ? q.simult.sellosPct : P.sellosHipPct)}</label>` : ''}</div>` : '';
 
   const nU = q.unidades.length;
-  const head = `<tr><th></th><th>Concepto</th><th>Regla</th><th class="r">% comprador</th><th class="r">% vendedor</th>${q.unidades.map(u => `<th class="r">${esc(u.nombre || 'Unidad')}</th>`).join('')}<th class="r">Total</th></tr>`;
+  const head = `<tr><th></th><th>Concepto</th><th>Regla</th>${unaParte(q) ? '' : `<th class="r">% ${esc(corto(parteNom(q, 0)))}</th>`}${unaParte(q) ? '' : `<th class="r">% ${esc(corto(parteNom(q, 1)))}</th>`}${q.unidades.map(u => `<th class="r">${esc(u.nombre || 'Unidad')}</th>`).join('')}<th class="r">Total</th></tr>`;
   const lines = A.lines.map(k => {
     const s = SPEC[k], c = q.cfg[k];
     let rule = '';
@@ -576,14 +593,14 @@ function vEditor(q) {
     else if (s.kind === 'qty') rule = ri('qty', c.qty) + ' × ' + ri('val', c.val, 'mid');
     else if (s.kind === 'pcthon') rule = ri('pct', c.pct) + ' %';
     const cells = q.unidades.map((u, i) => s.once && i > 0 ? '<td></td>' : `<td class="r"><input class="cell" inputmode="decimal" data-cell="${k}|${i}" value=""></td>`).join('');
-    return `<tr id="r_${k}" class="${c.on ? '' : 'off'}"><td><input type="checkbox" data-c="${k}|on" ${c.on ? 'checked' : ''} aria-label="Incluir ${esc(s.label)}"></td><td style="min-width:170px">${esc(s.label)}${s.extra ? ' <span class="chip">opcional</span>' : ''}</td><td class="rule">${rule}</td><td class="r"><input class="mini" inputmode="decimal" data-c="${k}|pc" value="${fnum(100 - c.pv)}" aria-label="Porcentaje a cargo del comprador"></td><td class="r"><input class="mini" inputmode="decimal" data-c="${k}|pv" value="${fnum(c.pv)}" aria-label="Porcentaje a cargo del vendedor"></td>${cells}<td class="r num" style="white-space:nowrap" id="t_${k}"></td></tr>`;
+    return `<tr id="r_${k}" class="${c.on ? '' : 'off'}"><td><input type="checkbox" data-c="${k}|on" ${c.on ? 'checked' : ''} aria-label="Incluir ${esc(s.label)}"></td><td style="min-width:170px">${esc(s.label)}${s.extra ? ' <span class="chip">opcional</span>' : ''}</td><td class="rule">${rule}</td>${unaParte(q) ? '' : `<td class="r"><input class="mini" inputmode="decimal" data-c="${k}|pv" value="${fnum(c.pv)}" aria-label="Porcentaje a cargo de ${esc(parteNom(q, 0))}"></td><td class="r"><input class="mini" inputmode="decimal" data-c="${k}|pc" value="${fnum(100 - c.pv)}" aria-label="Porcentaje a cargo de ${esc(parteNom(q, 1))}"></td>`}${cells}<td class="r num" style="white-space:nowrap" id="t_${k}"></td></tr>`;
   }).join('');
-  const custom = q.custom.map((c, i) => `<tr><td></td><td><input type="text" data-x="${i}|label" value="${esc(c.label)}" placeholder="Concepto"></td><td>${inp(`data-x="${i}|monto"`, c.monto, 'mid')}</td><td class="r"><input class="mini" inputmode="decimal" data-x="${i}|pc" value="${fnum(100 - c.pv)}" aria-label="Porcentaje a cargo del comprador"></td><td class="r"><input class="mini" inputmode="decimal" data-x="${i}|pv" value="${fnum(c.pv)}" aria-label="Porcentaje a cargo del vendedor"></td><td colspan="${nU}"></td><td class="r"><button class="btn ghost sm" type="button" data-act="delCustom" data-i="${i}">Quitar</button></td></tr>`).join('');
+  const custom = q.custom.map((c, i) => `<tr><td></td><td><input type="text" data-x="${i}|label" value="${esc(c.label)}" placeholder="Concepto"></td><td>${inp(`data-x="${i}|monto"`, c.monto, 'mid')}</td>${unaParte(q) ? '' : `<td class="r"><input class="mini" inputmode="decimal" data-x="${i}|pv" value="${fnum(c.pv)}" aria-label="Porcentaje a cargo de ${esc(parteNom(q, 0))}"></td><td class="r"><input class="mini" inputmode="decimal" data-x="${i}|pc" value="${fnum(100 - c.pv)}" aria-label="Porcentaje a cargo de ${esc(parteNom(q, 1))}"></td>`}<td colspan="${nU}"></td><td class="r"><button class="btn ghost sm" type="button" data-act="delCustom" data-i="${i}">Quitar</button></td></tr>`).join('');
 
   return `<div class="bar"><button class="btn ghost sm" type="button" data-nav="presupuestos">‹ Presupuestos</button><h1>${qLabel(q)}</h1><span class="chip">${esc(q.clienteNombre || 'Sin cliente')}</span><span class="sp"></span>${shareBtn(q, 'presupuestos')}
     <button class="btn ghost" type="button" data-act="openDoc">Vista para el cliente</button>
     <button class="btn" type="button" data-act="mkTask">Crear seguimiento</button></div>
-  <div class="sumbar"><div class="sb"><span class="muted small">COMPRADOR</span><span class="big num" id="s_c"></span></div><div class="sb"><span class="muted small">VENDEDOR</span><span class="big num" id="s_v"></span></div><div class="sb"><span class="muted small">TOTAL</span><b class="big num" id="s_t"></b></div><div class="sb muted small" style="margin-left:auto"><span>Equivalente (dólar venta ${nf0.format(S.params.tcVenta)})</span><span class="num" id="s_u"></span></div></div>
+  <div class="sumbar">${unaParte(q) ? '' : `<div class="sb"><span class="muted small">${esc(parteNom(q, 0).toUpperCase())}</span><span class="big num" id="s_v"></span></div>`}<div class="sb"><span class="muted small">${esc(parteNom(q, 1).toUpperCase())}</span><span class="big num" id="s_c"></span></div><div class="sb"><span class="muted small">TOTAL</span><b class="big num" id="s_t"></b></div><div class="sb muted small" style="margin-left:auto"><span>Equivalente (dólar venta ${nf0.format(S.params.tcVenta)})</span><span class="num" id="s_u"></span></div></div>
   <div class="stack">
    <section class="panel"><h3>Datos</h3><div class="grid" style="margin-top:10px">
      <label class="f"><span class="h">Cliente guardado</span><select data-f="clienteId">${optList(clis, q.clienteId)}</select></label>
@@ -597,7 +614,9 @@ function vEditor(q) {
      <label class="f"><span class="h">Moneda de la operación</span><select data-f="moneda"><option value="ARS" ${!usd ? 'selected' : ''}>Pesos</option><option value="USD" ${usd ? 'selected' : ''}>Dólares</option></select></label>
      ${usd ? `<label class="f"><span class="h">Cotización USD (venta)</span>${inp('data-f="tc"', q.tc)}<span class="small">Referencia: compra ${nf0.format(S.params.tcCompra)} · venta ${nf0.format(S.params.tcVenta)}</span></label>` : ''}
      <label class="f"><span class="h">Municipio</span><select data-f="municipio">${optList(munis, q.municipio)}</select></label>
-     <label class="f"><span class="h">Comprador</span><select data-f="persona"><option value="particular" ${q.persona === 'particular' ? 'selected' : ''}>Persona humana</option><option value="sociedad" ${q.persona === 'sociedad' ? 'selected' : ''}>Sociedad</option></select></label>
+     <label class="f"><span class="h">Tipo de persona (${esc(parteNom(q, 1))})</span><select data-f="persona"><option value="particular" ${q.persona === 'particular' ? 'selected' : ''}>Persona humana</option><option value="sociedad" ${q.persona === 'sociedad' ? 'selected' : ''}>Sociedad</option></select></label>
+     ${unaParte(q) ? '' : `<label class="f"><span class="h">Nombre de la primera parte</span><input type="text" data-f="parteV" value="${esc(q.parteV || '')}" placeholder="${esc(parteDef(q, 0))}"></label>`}
+     <label class="f"><span class="h">${unaParte(q) ? 'Nombre del socio' : 'Nombre de la segunda parte'}</span><input type="text" data-f="parteC" value="${esc(q.parteC || '')}" placeholder="${esc(parteDef(q, 1))}"></label>
      <label class="f"><span class="h">Redondear hacia arriba a</span><select data-f="redondeo">${optList([['0', 'Sin redondeo'], ['100', '$100'], ['1000', '$1.000'], ['10000', '$10.000']], String(q.redondeo || 0))}</select></label></div>
      ${acto}${simult}</section>
    <section class="panel"><div class="bar" style="margin-bottom:8px"><h3>Conceptos</h3><span class="sp"></span><span class="muted small">Escribí sobre un importe para pisar el cálculo. Vaciá la celda para volver al automático.</span></div>
@@ -605,7 +624,7 @@ function vEditor(q) {
      <div class="tw"><table><thead>${head}</thead><tbody>${lines}${custom}</tbody></table></div>
      <div class="bar" style="margin:10px 0 0"><button class="btn ghost sm" type="button" data-act="addCustom">Agregar otro concepto</button><span class="sp"></span><button class="btn ghost sm" type="button" data-act="refreshRates" title="Vuelve a tomar los porcentajes y valores de la pestaña Tarifas">Actualizar con tarifas vigentes</button></div></section>
    <section class="panel"><label class="f"><span class="h">Notas internas</span><textarea data-f="notas">${esc(q.notas)}</textarea></label>
-     <div class="bar" style="margin:12px 0 0"><button class="btn ghost sm" type="button" data-act="dupQuote">Duplicar</button>${puedeGestionar(q) ? '<button class="btn ghost sm" type="button" data-act="delQuote">Eliminar presupuesto</button>' : '<span class="muted small">Sólo el dueño o un supervisor pueden eliminarlo.</span>'}</div></section>
+     <div class="bar" style="margin:12px 0 0"><button class="btn ghost sm" type="button" data-act="dupQuote">Duplicar</button>${puedeGestionar(q) ? '<button class="btn ghost sm" type="button" data-act="delQuote">Eliminar presupuesto</button>' : '<span class="muted small">Solo el dueño o un supervisor pueden eliminarlo.</span>'}</div></section>
      <section class="panel small muted">Los aportes usan la cartilla vigente: ${esc(P.vigenciaCartilla)}. Reparticiones: ${esc(P.vigenciaReparticiones)}. Este presupuesto guarda su propia copia de tarifas.</section></div>`;
 }
 
@@ -621,11 +640,11 @@ function recalc() {
       el.disabled = !row.on;
       if (!c.ov) el.title = 'Cálculo automático';
     });
-    const t = $('#t_' + row.k); if (t) t.innerHTML = row.on ? `${money(row.total)}<div class="muted small">C ${money(row.comp)} · V ${money(row.vend)}</div>` : '—';
+    const t = $('#t_' + row.k); if (t) t.innerHTML = row.on ? `${money(row.total)}${unaParte(q) ? '' : `<div class="muted small">${esc(corto(parteNom(q, 0)))} ${money(row.vend)} · ${esc(corto(parteNom(q, 1)))} ${money(row.comp)}</div>`}` : '—';
   });
   const ar = $('#aruleTxt'); if (ar) ar.textContent = q.acto === 'general' || ['compraventa', 'hipoteca', 'donacion', 'permuta'].includes(q.acto) ? `${nf2.format(P.aportePct)}% · mín ${money(P.aporteMin)}` : 'según cartilla';
   r.units.forEach((u, i) => { const el = $('#ub' + i); if (el) el.textContent = ['compraventa', 'hipoteca', 'donacion', 'permuta', 'particion'].includes(q.acto) ? `Base imponible ${money(u.imp)}${u.av > u.monto ? ' (rige el ' + (q.unidades[i].tipo === 'rural' ? 'cuádruple' : 'triple') + ' del avalúo fiscal)' : ''}` : (u.monto ? `Monto en pesos ${money(u.monto)}` : ''); });
-  $('#s_c').textContent = money(r.totC); $('#s_v').textContent = money(r.totV); $('#s_t').textContent = money(r.total);
+  $('#s_c').textContent = money(r.totC); if ($('#s_v')) $('#s_v').textContent = money(r.totV); $('#s_t').textContent = money(r.total);
   $('#s_u').textContent = 'USD ' + nf0.format(S.params.tcVenta ? r.total / S.params.tcVenta : 0);
   $('#warns').innerHTML = r.warnings.map(w => `<div class="note">${esc(w)}</div>`).join('');
 }
@@ -638,23 +657,23 @@ function vDoc(q) {
   const block = (title, key) => {
     const rows = items.filter(x => x[key] > 0);
     if (!rows.length) return '';
-    return `<h3>${title}</h3><table><tbody>${rows.map(x => `<tr><td>${esc(x.label)}</td><td class="r num">${money(x[key])}</td></tr>`).join('')}<tr class="tot"><td>Total a cargo del ${key === 'comp' ? 'comprador' : 'vendedor'}</td><td class="r num">${money(key === 'comp' ? r.totC : r.totV)}</td></tr></tbody></table>`;
+    return `<h3>${title}</h3><table><tbody>${rows.map(x => `<tr><td>${esc(x.label)}</td><td class="r num">${money(x[key])}</td></tr>`).join('')}<tr class="tot"><td>Total a cargo ${aCargoDe(q, key === 'comp' ? 1 : 0)}</td><td class="r num">${money(key === 'comp' ? r.totC : r.totV)}</td></tr></tbody></table>`;
   };
   const monto = q.unidades.reduce((a, u) => a + (+u.monto || 0), 0);
   return `<div class="bar noprint"><button class="btn ghost sm" type="button" data-nav="editor" data-id="${q.id}">‹ Volver al presupuesto</button><span class="sp"></span>
-    <label class="f" style="flex-direction:row;align-items:center;gap:8px"><span>Emitir para</span><select id="docMode" style="width:auto"><option value="ambos" ${mode === 'ambos' ? 'selected' : ''}>Comprador y vendedor</option><option value="comp" ${mode === 'comp' ? 'selected' : ''}>Sólo comprador</option><option value="vend" ${mode === 'vend' ? 'selected' : ''}>Sólo vendedor</option></select></label>
+    <label class="f" style="flex-direction:row;align-items:center;gap:8px"><span>Emitir para</span><select id="docMode" style="width:auto">${unaParte(q) ? `<option value="ambos" selected>${esc(parteDoc(q, 1))}</option>` : `<option value="ambos" ${mode === 'ambos' ? 'selected' : ''}>${esc(parteDoc(q, 0))} y ${esc(parteDoc(q, 1))}</option><option value="vend" ${mode === 'vend' ? 'selected' : ''}>Solo ${esc(parteDoc(q, 0))}</option><option value="comp" ${mode === 'comp' ? 'selected' : ''}>Solo ${esc(parteDoc(q, 1))}</option>`}</select></label>
     <button class="btn ghost" type="button" data-act="copyDoc">Copiar texto</button><button class="btn" type="button" data-act="print">Imprimir o guardar PDF</button></div>
   <article class="doc"><div class="hd"><img alt="" src="${window.LOGO_MARK}"><div class="nm">Gomez | Di Vanni | Serdoch<small>& asociados · Estudio jurídico notarial</small></div><div class="id"><b>${qLabel(q)}</b><br>Mendoza, ${fdate(q.fecha)}</div></div>
     <h2>Presupuesto</h2>
     <p style="margin:14px 0 0"><b>${esc(q.clienteNombre || '')}</b><br>${esc(q.ref)}<br><span style="color:#4a4a45">${ACTOS[q.acto].label}${monto ? ' · monto ' + (usd ? 'USD ' + nf0.format(monto) + ' (cotización $ ' + nf0.format(q.tc) + ')' : money(monto)) : ''}</span></p>
-    ${mode !== 'vend' ? block('A cargo del comprador', 'comp') : ''}${mode !== 'comp' ? block('A cargo del vendedor', 'vend') : ''}
+    ${unaParte(q) ? block('A cargo ' + aCargoDe(q, 1), 'comp') : `${mode !== 'comp' ? block('A cargo ' + aCargoDe(q, 0), 'vend') : ''}${mode !== 'vend' ? block('A cargo ' + aCargoDe(q, 1), 'comp') : ''}`}
     <p class="fine">El presente presupuesto tiene una validez de ${q.params.validezDias} (${q.params.validezDias}) días desde la fecha de su emisión y podrá sufrir modificaciones y variaciones sin previo aviso en caso de que exista un aumento en los conceptos consignados.</p></article>`;
 }
 function docText(q) {
   const r = computeQuote(q), mode = q.mostrar || 'ambos';
   const items = r.rows.filter(x => x.on && x.total > 0).concat(r.hip, r.custom.filter(x => x.total > 0));
   const blk = (t, key) => { const rows = items.filter(x => x[key] > 0); return rows.length ? `${t}\n` + rows.map(x => `- ${x.label}: ${money(x[key])}`).join('\n') + `\nTOTAL: ${money(key === 'comp' ? r.totC : r.totV)}\n` : ''; };
-  return `PRESUPUESTO ${qLabel(q)} - ${fdate(q.fecha)}\n${q.clienteNombre}\n${q.ref}\n\n` + (mode !== 'vend' ? blk('A CARGO DEL COMPRADOR', 'comp') + '\n' : '') + (mode !== 'comp' ? blk('A CARGO DEL VENDEDOR', 'vend') + '\n' : '') + `Validez: ${q.params.validezDias} días desde la emisión. Sujeto a modificaciones sin previo aviso si aumentan los conceptos.`;
+  return `PRESUPUESTO ${qLabel(q)} - ${fdate(q.fecha)}\n${q.clienteNombre}\n${q.ref}\n\n` + (unaParte(q) ? blk('A CARGO ' + aCargoDe(q, 1, true), 'comp') + '\n' : (mode !== 'comp' ? blk('A CARGO ' + aCargoDe(q, 0, true), 'vend') + '\n' : '') + (mode !== 'vend' ? blk('A CARGO ' + aCargoDe(q, 1, true), 'comp') + '\n' : '')) + `Validez: ${q.params.validezDias} días desde la emisión. Sujeto a modificaciones sin previo aviso si aumentan los conceptos.`;
 }
 
 /* ---------- Seguimiento ---------- */
@@ -705,13 +724,13 @@ function vTaskEdit(t) {
    <section class="panel"><div class="bar" style="margin-bottom:6px"><h3>Pasos</h3><span class="muted small">${done} de ${t.checklist.length}</span><span class="sp"></span><button class="btn ghost sm" type="button" data-act="loadTpl">Cargar pasos sugeridos</button></div>
     ${t.checklist.map((c, i) => `<div class="chk ${c.done ? 'done' : ''}"><input type="checkbox" data-chk="${i}" ${c.done ? 'checked' : ''} id="ck${i}"><span style="flex:1">${esc(c.t)}</span><button class="btn ghost sm" type="button" data-act="delStep" data-i="${i}">Quitar</button></div>`).join('') || '<div class="muted small">Sin pasos todavía.</div>'}
     <div class="bar" style="margin:10px 0 0"><input id="newStep" placeholder="Agregar un paso" style="flex:1"><button class="btn sm" type="button" data-act="addStep">Agregar</button></div></section>
-   <section class="panel"><label class="f"><span class="h">Notas</span><textarea data-t="notas">${esc(t.notas)}</textarea></label><div class="bar" style="margin:12px 0 0">${puedeGestionar(t) ? '<button class="btn ghost sm" type="button" data-act="delTask">Eliminar tarea</button>' : '<span class="muted small">Sólo el dueño o un supervisor pueden eliminarla.</span>'}</div></section></div><div></div></div>`;
+   <section class="panel"><label class="f"><span class="h">Notas</span><textarea data-t="notas">${esc(t.notas)}</textarea></label><div class="bar" style="margin:12px 0 0">${puedeGestionar(t) ? '<button class="btn ghost sm" type="button" data-act="delTask">Eliminar tarea</button>' : '<span class="muted small">Solo el dueño o un supervisor pueden eliminarla.</span>'}</div></section></div><div></div></div>`;
 }
 
 /* ---------- Clientes ---------- */
 function vClientes() {
   const id = view.cid, c = S.clientes.find(x => x.id === id);
-  const rows = S.clientes.map(x => { const esp = [x.honPct != null && `honorarios ${nf2.format(x.honPct)}%`, x.honMin != null && `mín ${money(x.honMin)}`, x.descHon != null && `desc. ${x.descHon}%`, x.todoComprador && 'todo a cargo del comprador', x.cobraEstudio === false && 'sin estudio de títulos'].filter(Boolean).join(' · '); return `<tr class="clk" data-cli="${x.id}"><td>${esc(x.nombre)} ${Cloud.on ? ownChips(x) : ''}</td><td>${x.persona === 'sociedad' ? 'Sociedad' : 'Persona humana'}</td><td>${esp ? esc(esp) : '<span class="muted">Tarifa estándar</span>'}</td></tr>`; }).join('');
+  const rows = S.clientes.map(x => { const esp = [x.honPct != null && `honorarios ${nf2.format(x.honPct)}%`, x.honMin != null && `mín ${money(x.honMin)}`, x.descHon != null && `desc. ${x.descHon}%`, x.todoComprador && 'todo a cargo de la segunda parte', x.cobraEstudio === false && 'sin estudio de títulos'].filter(Boolean).join(' · '); return `<tr class="clk" data-cli="${x.id}"><td>${esc(x.nombre)} ${Cloud.on ? ownChips(x) : ''}</td><td>${x.persona === 'sociedad' ? 'Sociedad' : 'Persona humana'}</td><td>${esp ? esc(esp) : '<span class="muted">Tarifa estándar</span>'}</td></tr>`; }).join('');
   const form = c ? `<section class="panel"><div class="bar" style="margin-bottom:0"><h3>${esc(c.nombre || 'Nuevo cliente')}</h3><span class="sp"></span>${shareBtn(c, 'clientes')}</div><div class="grid" style="margin:10px 0">
     <label class="f"><span class="h">Nombre o razón social</span><input type="text" data-cf="nombre" value="${esc(c.nombre)}"></label>
     <label class="f"><span class="h">CUIT / DNI</span><input type="text" data-cf="cuit" value="${esc(c.cuit)}"></label>
@@ -724,7 +743,7 @@ function vClientes() {
     <label class="f"><span class="h">Estudio de títulos (%) · estándar ${nf2.format(S.params.estudioPct)}</span>${inp('data-cf="estudioPct"', c.estudioPct)}</label>
     <label class="f"><span class="h">Cobrar estudio de títulos</span><select data-cf="cobraEstudio"><option value="1" ${c.cobraEstudio !== false ? 'selected' : ''}>Sí</option><option value="0" ${c.cobraEstudio === false ? 'selected' : ''}>No</option></select></label>
     <label class="f"><span class="h">Cobrar derechos en certificados</span><select data-cf="cobraDerechos"><option value="1" ${c.cobraDerechos !== false ? 'selected' : ''}>Sí</option><option value="0" ${c.cobraDerechos === false ? 'selected' : ''}>No</option></select></label>
-    <label class="f"><span class="h">Reparto de gastos</span><select data-cf="todoComprador"><option value="0" ${!c.todoComprador ? 'selected' : ''}>Estándar (comprador y vendedor)</option><option value="1" ${c.todoComprador ? 'selected' : ''}>Todo a cargo del comprador</option></select></label></div>
+    <label class="f"><span class="h">Reparto de gastos</span><select data-cf="todoComprador"><option value="0" ${!c.todoComprador ? 'selected' : ''}>Estándar (se reparte entre las dos partes)</option><option value="1" ${c.todoComprador ? 'selected' : ''}>Todo a cargo de la segunda parte (comprador, deudor, etc.)</option></select></label></div>
    <label class="f" style="margin-top:12px"><span class="h">Notas</span><textarea data-cf="notas">${esc(c.notas)}</textarea></label>
    <div class="bar" style="margin:12px 0 0"><button class="btn" type="button" data-act="quoteFor" data-id="${c.id}">Nuevo presupuesto para este cliente</button>${puedeGestionar(c) ? `<button class="btn ghost sm" type="button" data-act="delClient" data-id="${c.id}">Eliminar cliente</button>` : ''}</div></section>` : '';
   return `<div class="bar"><h1>Clientes</h1><span class="sp"></span><button class="btn" type="button" data-act="newClient">Nuevo cliente</button></div>
@@ -767,7 +786,7 @@ const normShare = a => [...new Set((a || []).map(e => String(e).toLowerCase()))]
 const hashOf = x => canon(cleanDoc(x)) + '#' + canon(normShare(x.compartido));
 const rowsSig = rows => canon(rows.map(r => [r.coleccion, r.id, r.data, r.owner || '', normShare(r.shared_with)]));
 
-/* ---- Dueño y permisos (sólo en modo nube) ---- */
+/* ---- Dueño y permisos (solo en modo nube) ---- */
 const myEmail = () => ((Cloud.user && Cloud.user.email) || '').toLowerCase();
 const teamMe = () => (Cloud.team || []).find(t => t.email === myEmail());
 const isSup = () => Cloud.on && !!teamMe() && teamMe().rol === 'supervisor';
@@ -795,7 +814,7 @@ function shareDlgHtml() {
   const people = (Cloud.team || []).filter(t => t.email !== owner && t.rol !== 'supervisor');
   const rows = people.map(t => `<label class="chk" style="padding:6px 0"><input type="checkbox" data-shr="${esc(t.email)}" ${sel.includes(t.email) || all ? 'checked' : ''} ${!can || all ? 'disabled' : ''}><span style="flex:1">${esc(t.nombre || t.email)}${t.nombre ? `<span class="muted small"> · ${esc(t.email)}</span>` : ''}</span></label>`).join('');
   return `<div id="dlgbg" class="dlgbg"><div class="dlg" role="dialog" aria-modal="true"><div class="bar" style="margin-bottom:6px"><h3>Compartir ${WHAT[d.c]}</h3><span class="sp"></span><button class="btn ghost sm" type="button" data-act="closeDlg">Cerrar</button></div>
-   <p class="muted small" style="margin:0 0 10px">Dueño: <b>${esc(esMio(x) ? 'vos' : personName(owner))}</b>. ${can ? 'Las personas marcadas pueden ver y editar, pero no eliminar. Sólo el dueño y los supervisores cambian esto.' : 'Sólo el dueño o un supervisor pueden cambiar con quién se comparte.'}</p>
+   <p class="muted small" style="margin:0 0 10px">Dueño: <b>${esc(esMio(x) ? 'vos' : personName(owner))}</b>. ${can ? 'Las personas marcadas pueden ver y editar, pero no eliminar. Solo el dueño y los supervisores cambian esto.' : 'Solo el dueño o un supervisor pueden cambiar con quién se comparte.'}</p>
    ${can ? `<label class="chk" style="padding:6px 0;border-bottom:1px solid var(--line);margin-bottom:4px"><input type="checkbox" data-shr-all="1" ${all ? 'checked' : ''}><span style="flex:1"><b>Con todos</b><span class="muted small"> · incluye las cuentas que se agreguen más adelante</span></span></label>` : (all ? '<p class="small" style="margin:0 0 6px"><b>Compartido con todo el estudio.</b></p>' : '')}
    ${rows || '<div class="muted small">No hay otras cuentas en el equipo.</div>'}
    ${supEmails().some(e => e !== owner) ? '<label class="chk" style="padding:6px 0"><input type="checkbox" checked disabled><span style="flex:1">Supervisor<span class="muted small"> · ve todo el estudio</span></span></label>' : ''}
@@ -834,7 +853,7 @@ function mergeParams(d) {
   return m;
 }
 function mergeImport(j) {
-  // Sólo agrega lo que falta (por id). Lo que ya está en la nube no se pisa, así se puede volver a importar sin riesgo.
+  // Solo agrega lo que falta (por id). Lo que ya está en la nube no se pisa, así se puede volver a importar sin riesgo.
   const r = {clientes: 0, presupuestos: 0, tareas: 0, existentes: 0};
   CLOUD_COLLS.forEach(c => (j[c] || []).forEach(item => {
     if (!item.id) item.id = uid();
@@ -857,7 +876,7 @@ const editingNow = () => { const a = document.activeElement; return !!(a && /^(I
 function afterSnapshot() { updateChrome(); if (editingNow()) { Cloud.pendingRender = true; return; } render(true); }
 const cloudDirty = () => !!Cloud.timer || !!Cloud.flushing || Cloud.syncState === 'error';
 
-// Deja sólo https://xxxx.supabase.co aunque se haya pegado con barra final o con /rest/v1
+// Deja solo https://xxxx.supabase.co aunque se haya pegado con barra final o con /rest/v1
 function cfgUrl(u) { try { return new URL(String(u).trim()).origin; } catch (e) { return String(u).trim(); } }
 function cloudInit() {
   const c = window.SUPABASE_CONFIG;
@@ -1058,7 +1077,7 @@ document.addEventListener('click', e => {
     case 'delCustom': q.custom.splice(+d.i, 1); save(); return render();
     case 'refreshRates': { const cli = S.clientes.find(c => c.id === q.clienteId); const fresh = newQuote(q.clienteId, q.acto); fresh.persona = q.persona; fresh.cfg = initCfg(Object.assign(fresh, {persona: q.persona}), q.cfg); q.params = fresh.params; q.cfg = fresh.cfg; void cli; save(); render(); return toast('Tarifas actualizadas. Se mantuvieron los conceptos incluidos y el reparto.'); }
     case 'dupQuote': { const c = clone(q); c.id = uid(); delete c.dueno; c.compartido = []; c.num = nextNum(); c.fecha = today(); c.estado = 'Borrador'; S.presupuestos.unshift(c); save(); toast('Presupuesto duplicado.'); return go('editor', c.id); }
-    case 'delQuote': if (!puedeGestionar(q)) return toast('Sólo el dueño o un supervisor pueden eliminar este presupuesto.'); if (!confirmTwice('q' + q.id, t, 'Tocá otra vez para eliminar este presupuesto.')) return; S.presupuestos = S.presupuestos.filter(x => x !== q); save(); return go('presupuestos');
+    case 'delQuote': if (!puedeGestionar(q)) return toast('Solo el dueño o un supervisor pueden eliminar este presupuesto.'); if (!confirmTwice('q' + q.id, t, 'Tocá otra vez para eliminar este presupuesto.')) return; S.presupuestos = S.presupuestos.filter(x => x !== q); save(); return go('presupuestos');
     case 'openDoc': return go('doc', q.id);
     case 'print': return window.print();
     case 'copyDoc': { const txt = docText(q); navigator.clipboard?.writeText(txt).then(() => toast('Texto copiado.'), () => toast('No se pudo copiar. Seleccioná el texto manualmente.')); return; }
@@ -1070,9 +1089,9 @@ document.addEventListener('click', e => {
     case 'loadTpl': { const tk = S.tareas.find(x => x.id === view.id); const tpl = TEMPLATES[tk.tipo] || []; if (!tpl.length) return toast('Este tipo no tiene pasos sugeridos.'); const have = new Set(tk.checklist.map(c => c.t)); tpl.forEach(n => { if (!have.has(n)) tk.checklist.push({t: n, done: false}); }); save(); return render(); }
     case 'addStep': { const el = $('#newStep'); if (el.value.trim()) { S.tareas.find(x => x.id === view.id).checklist.push({t: el.value.trim(), done: false}); save(); render(); $('#newStep').focus(); } return; }
     case 'delStep': S.tareas.find(x => x.id === view.id).checklist.splice(+d.i, 1); save(); return render();
-    case 'delTask': if (!puedeGestionar(S.tareas.find(x => x.id === view.id))) return toast('Sólo el dueño o un supervisor pueden eliminar esta tarea.'); if (!confirmTwice('t' + view.id, t, 'Tocá otra vez para eliminar esta tarea.')) return; S.tareas = S.tareas.filter(x => x.id !== view.id); save(); return go('seguimiento');
+    case 'delTask': if (!puedeGestionar(S.tareas.find(x => x.id === view.id))) return toast('Solo el dueño o un supervisor pueden eliminar esta tarea.'); if (!confirmTwice('t' + view.id, t, 'Tocá otra vez para eliminar esta tarea.')) return; S.tareas = S.tareas.filter(x => x.id !== view.id); save(); return go('seguimiento');
     case 'newClient': { const c = {id: uid(), nombre: 'Nuevo cliente', cuit: '', persona: 'particular', todoComprador: false, honPct: null, honMin: null, descHon: null, derechosPct: null, estudioPct: null, cobraEstudio: true, cobraDerechos: true, notas: ''}; S.clientes.push(c); save(); view = {name: 'clientes', cid: c.id}; return render(); }
-    case 'delClient': if (!puedeGestionar(S.clientes.find(x => x.id === d.id))) return toast('Sólo el dueño o un supervisor pueden eliminar este cliente.'); if (!confirmTwice('c' + d.id, t, 'Tocá otra vez para eliminar el cliente. Los presupuestos hechos no se borran.')) return; S.clientes = S.clientes.filter(c => c.id !== d.id); save(); view = {name: 'clientes'}; return render();
+    case 'delClient': if (!puedeGestionar(S.clientes.find(x => x.id === d.id))) return toast('Solo el dueño o un supervisor pueden eliminar este cliente.'); if (!confirmTwice('c' + d.id, t, 'Tocá otra vez para eliminar el cliente. Los presupuestos hechos no se borran.')) return; S.clientes = S.clientes.filter(c => c.id !== d.id); save(); view = {name: 'clientes'}; return render();
     case 'clearExample': if (!confirmTwice('ex', t, 'Tocá otra vez para borrar clientes, presupuestos y tareas de ejemplo.')) return; S.clientes = []; S.presupuestos = []; S.tareas = []; S.ejemplo = false; S.seq = 0; save(); return render();
     case 'resetParams': if (!confirmTwice('rp', t, 'Tocá otra vez para volver a los valores de fábrica.')) return; S.params = clone(DEFAULT_PARAMS); save(); return render();
     case 'logout': return cloudLogout();
@@ -1103,6 +1122,7 @@ app().addEventListener('change', e => {
       if (['tc'].includes(d.f)) { v = num() || 0; el.value = fnum(v); }
       if (d.f === 'redondeo') v = +v;
       q[d.f] = v;
+      if (d.f === 'parteV' || d.f === 'parteC') { save(); return render(true); }
       if (d.f === 'clienteId') { const c = S.clientes.find(x => x.id === v); if (c) { q.clienteNombre = c.nombre; q.persona = c.persona; const fresh = newQuote(v, q.acto); q.params = fresh.params; q.cfg = initCfg(q, null); } save(); return render(); }
       if (['acto', 'persona', 'moneda', 'municipio'].includes(d.f)) {
         if (d.f === 'moneda' && v === 'USD') q.tc = q.tc > 1 ? q.tc : S.params.tcVenta;
